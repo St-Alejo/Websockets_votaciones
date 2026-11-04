@@ -10,6 +10,18 @@ export function redisFalso() {
     on() {
       return this;
     },
+    // Forma que espera leerSnapshot: [hash, totalCatálogo] por nivel y el stream_id al final.
+    async snapshotLua(...args) {
+      const claves = args.slice(1);
+      const niveles = Math.max(0, (claves.length - 1) / 2);
+      const crudo = [];
+      for (let i = 0; i < niveles; i += 1) {
+        crudo.push([]);
+        crudo.push('0');
+      }
+      crudo.push('0-0');
+      return crudo;
+    },
   };
 }
 

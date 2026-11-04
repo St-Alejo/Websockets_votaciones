@@ -1,5 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { leerDesde, registrarEnMemoria, vaciarMemoria } from '../../src/redis/historial.js';
+import { describe, expect, it } from 'vitest';
 import {
   afectaTopico,
   backoffExponencial,
@@ -22,8 +21,6 @@ function evento(parcial) {
 }
 
 describe('RF-6 cursor y reanudación', () => {
-  beforeEach(() => vaciarMemoria());
-
   it('lee Last-Event-ID antes que ultimo_id', () => {
     expect(
       leerCursor({
@@ -111,29 +108,22 @@ describe('RF-6 cursor y reanudación', () => {
     expect(plan.eventos.map((e) => e.stream_id)).toEqual(['6-0']);
   });
 
-  it('el stub de historial distingue recortado, al día y hay más', async () => {
-    registrarEnMemoria(evento({ stream_id: '10-0' }));
-    expect((await leerDesde('1-0', 10)).recortado).toBe(true);
-
-    vaciarMemoria();
-    registrarEnMemoria(evento({ stream_id: '5-0' }));
-    registrarEnMemoria(evento({ stream_id: '6-0', mun: 4 }));
-    const alDia = await leerDesde('6-0', 10);
-    expect(alDia.eventos).toEqual([]);
-    expect(alDia.recortado).toBe(false);
-
-    registrarEnMemoria(evento({ stream_id: '7-0' }));
-    const pagina = await leerDesde('5-0', 1);
-    expect(pagina.eventos.map((e) => e.stream_id)).toEqual(['6-0']);
-    expect(pagina.hayMas).toBe(true);
-
+  it('el campo hay_mas del historial de main obliga a un snapshot', async () => {
     const plan = await decidirReanudacion({
       cursor: '5-0',
       topico: 'dep',
-      maxDeltas: 1,
+      maxDeltas: 10,
       snapshot: async () => ({ niveles: {}, stream_id: '9-0' }),
+      historial: {
+        leerDesde: async () => ({
+          eventos: [evento({ stream_id: '6-0' })],
+          stream_id: '6-0',
+          hay_mas: true,
+        }),
+      },
     });
     expect(plan.modo).toBe('snapshot');
+    expect(plan.motivo).toBe('hueco_grande');
   });
 });
 

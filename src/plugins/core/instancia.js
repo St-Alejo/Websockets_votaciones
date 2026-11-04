@@ -8,6 +8,8 @@ export default async function instancia(app) {
     uptime_s: Math.round(process.uptime()),
   }));
 
+  // 200 si Redis contesta un PING en < 500 ms; si no, 503 "degradado": la instancia sigue
+  // viva (sirve /instancia) pero no puede registrar actas.
   app.get('/salud', async (_req, reply) => {
     const redisOk = await redisResponde(app.redis);
     reply.code(redisOk ? 200 : 503);
@@ -15,6 +17,7 @@ export default async function instancia(app) {
       estado: redisOk ? 'ok' : 'degradado',
       instancia: app.instanceId,
       redis: redisOk ? 'ok' : 'sin_respuesta',
+      conexion_redis: app.redis?.status ?? 'sin_cliente',
     };
   });
 }

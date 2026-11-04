@@ -6,7 +6,18 @@ name: preconteo
 services:
   redis:
     image: redis:7-alpine
-    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    # AOF everysec: pierde como máximo ~1 s ante un corte. hash-max-listpack-value 128: los
+    # HASH acta:* (con el JSON de votos) siguen en listpack compacto (−34 % de memoria medido).
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--hash-max-listpack-value',
+        '128',
+      ]
     volumes:
       - redis-data:/data
     healthcheck:
@@ -14,6 +25,19 @@ services:
       interval: 2s
       timeout: 2s
       retries: 15
+
+  # Carga una vez los totales del catálogo (cat:...:mesas) y termina. Idempotente.
+  seed:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    command: ['node', 'scripts/seed-catalogo.js']
+    environment:
+      REDIS_URL: redis://redis:6379
+    restart: 'no'
+    depends_on:
+      redis:
+        condition: service_healthy
 
   app:
     build:
@@ -23,12 +47,18 @@ services:
       REDIS_URL: redis://redis:6379
       PORT: 3000
       LOG_LEVEL: info
+      REDIS_COMMAND_TIMEOUT_MS: 1000
+      RL_MAX: 20
+      RL_VENTANA_MS: 60000
+      STREAM_MAXLEN: 10000
       # Sin INSTANCE_ID: cada réplica usa su hostname (id del contenedor), distinto en las 8.
     deploy:
       replicas: 8
     depends_on:
       redis:
         condition: service_healthy
+      seed:
+        condition: service_completed_successfully
 
   nginx:
     image: nginx:1.27-alpine

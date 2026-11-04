@@ -1,126 +1,75 @@
-// Lectura de stream:actas para la reanudación (RF-6). Persona 1 escribe el stream;
-// mientras su historial no esté, este módulo lo lee directo si Redis responde
-// y, si no, usa una memoria local para que Persona 2 pueda probar sin esa pieza.
+// Dueño: Persona 1. Historial de actas aplicadas sobre stream:actas (RF-6).
+// Pub/Sub no tiene memoria; el Stream sí: ids monótonos (ms-secuencia) que el cliente lleva
+// como cursor (Last-Event-ID). XRANGE desde el cursor es O(log N + M) con M = eventos leídos.
 import { streamActas } from '../contratos/keys.js';
 import { eventoDesdeEntrada } from '../contratos/stream.js';
-import { obtenerRedis } from './cliente.js';
+import { traducirErrorRedis } from '../dominio/errores.js';
 
-const MAX_MEMORIA = 10_000;
-const memoria = [];
+const ID = /^\d+-\d+$/;
 
-/** Compara ids "ms-seq". Negativo si a es anterior a b. */
-export function compararStreamId(a, b) {
-  const pa = partir(a);
-  const pb = partir(b);
-  if (pa.ms !== pb.ms) return pa.ms - pb.ms;
-  return pa.seq - pb.seq;
+/** Compara ids de stream "ms-seq": <0, 0, >0. */
+export function compararIds(a, b) {
+  const [am, as] = a.split('-').map(BigInt);
+  const [bm, bs] = b.split('-').map(BigInt);
+  if (am !== bm) return am < bm ? -1 : 1;
+  return as === bs ? 0 : as < bs ? -1 : 1;
 }
 
-function partir(id) {
-  const [ms, seq] = String(id ?? '0-0').split('-');
-  const nms = Number(ms);
-  const nseq = Number(seq ?? 0);
-  return {
-    ms: Number.isFinite(nms) ? nms : 0,
-    seq: Number.isFinite(nseq) ? nseq : 0,
-  };
-}
-
-/** Stub en memoria. El id tiene que ser un stream id ("ms-seq"). */
-export function registrarEnMemoria(evento) {
-  memoria.push({ ...evento });
-  if (memoria.length > MAX_MEMORIA) memoria.splice(0, memoria.length - MAX_MEMORIA);
-}
-
-export function vaciarMemoria() {
-  memoria.length = 0;
-}
-
-function desdeLista(eventos, streamId, limite) {
-  if (eventos.length === 0) {
-    return {
-      eventos: [],
-      stream_id: streamId || '0-0',
-      recortado: Boolean(streamId),
-      hayMas: false,
-    };
+/** Último id del stream, o "0-0" si está vacío. */
+export async function ultimoId(redis) {
+  try {
+    const [ultima] = await redis.xrevrange(streamActas, '+', '-', 'COUNT', 1);
+    return ultima ? ultima[0] : '0-0';
+  } catch (err) {
+    throw traducirErrorRedis(err);
   }
-  if (streamId && compararStreamId(streamId, eventos[0].stream_id) < 0) {
-    return {
-      eventos: [],
-      stream_id: eventos[eventos.length - 1].stream_id,
-      recortado: true,
-      hayMas: false,
-    };
-  }
-  const posteriores = streamId
-    ? eventos.filter((e) => compararStreamId(e.stream_id, streamId) > 0)
-    : eventos.slice();
-  const recorte = posteriores.slice(0, limite);
-  const stream_id = recorte.length
-    ? recorte[recorte.length - 1].stream_id
-    : streamId || eventos[eventos.length - 1].stream_id;
-  return {
-    eventos: recorte,
-    stream_id,
-    recortado: false,
-    hayMas: posteriores.length > limite,
-  };
 }
 
-function leerDesdeMemoria(streamId, limite) {
-  const ordenados = memoria.slice().sort((a, b) => compararStreamId(a.stream_id, b.stream_id));
-  return desdeLista(ordenados, streamId, limite);
-}
-
-async function leerDesdeRedis(redis, streamId, limite) {
-  const primero = await redis.xrange(streamActas, '-', '+', 'COUNT', 1);
-  if (!primero?.length) {
-    return {
-      eventos: [],
-      stream_id: streamId || '0-0',
-      recortado: Boolean(streamId),
-      hayMas: false,
-    };
-  }
-  const idMin = primero[0][0];
-  if (streamId && compararStreamId(streamId, idMin) < 0) {
-    const ult = await redis.xrevrange(streamActas, '+', '-', 'COUNT', 1);
-    return {
-      eventos: [],
-      stream_id: ult?.[0]?.[0] ?? idMin,
-      recortado: true,
-      hayMas: false,
-    };
-  }
-  const inicio = streamId ? `(${streamId}` : '-';
-  const entradas = await redis.xrange(streamActas, inicio, '+', 'COUNT', limite);
-  const eventos = entradas.map((entrada) => eventoDesdeEntrada(entrada));
-  const stream_id = eventos.length ? eventos[eventos.length - 1].stream_id : streamId || idMin;
-  let hayMas = false;
-  if (eventos.length === limite && eventos.length > 0) {
-    const siguiente = await redis.xrange(
-      streamActas,
-      `(${eventos[eventos.length - 1].stream_id}`,
-      '+',
-      'COUNT',
-      1,
-    );
-    hayMas = siguiente.length > 0;
-  }
-  return { eventos, stream_id, recortado: false, hayMas };
+function campo(info, nombre) {
+  const i = info.indexOf(nombre);
+  return i === -1 ? null : info[i + 1];
 }
 
 /**
- * Eventos estrictamente posteriores a streamId.
- * `recortado: true` → el cursor ya no está en el stream; hay que pedir snapshot.
- * `hayMas: true` → el hueco supera `max`; también conviene el snapshot.
+ * Eventos estrictamente posteriores a `cursor`, hasta `max`.
+ * - recortado: true → parte de lo ocurrido después del cursor ya se recortó (MAXLEN): el
+ *   cliente debe pedir un snapshot en vez de aplicar deltas.
+ * - hay_mas: true → quedan eventos: volver a llamar con el stream_id devuelto.
  */
-export async function leerDesde(streamId, max) {
-  const limite = Number.isFinite(Number(max)) && Number(max) > 0 ? Number(max) : 500;
-  const redis = obtenerRedis();
-  if (redis && redis.status === 'ready' && typeof redis.xrange === 'function') {
-    return leerDesdeRedis(redis, streamId, limite);
+export async function leerDesde(redis, cursor, max) {
+  const limite = Math.max(1, Math.min(Number(max) || 500, 5000));
+  if (!ID.test(String(cursor ?? ''))) {
+    return { eventos: [], stream_id: await ultimoId(redis), recortado: true };
   }
-  return leerDesdeMemoria(streamId, limite);
+  try {
+    const [entradas, info] = await Promise.all([
+      redis.xrange(streamActas, `(${cursor}`, '+', 'COUNT', limite + 1),
+      redis.xinfo('STREAM', streamActas).catch(() => null), // stream inexistente → null
+    ]);
+    if (!info) return { eventos: [], stream_id: '0-0' };
+
+    // ¿Se perdió algo posterior al cursor? (a) XTRIM/MAXLEN borra por el principio: si hubo
+    // recorte (entries-added > length) y el cursor es anterior a la primera entrada viva,
+    // pudo perderse algo (conservador: en el borde exacto pide un snapshot de más, nunca
+    // pierde eventos). (b) XDEL deja rastro en max-deleted-entry-id.
+    const primera = campo(info, 'first-entry')?.[0];
+    const huboRecorte = Number(campo(info, 'entries-added')) > Number(campo(info, 'length'));
+    const borrado = campo(info, 'max-deleted-entry-id') ?? '0-0';
+    const recortado =
+      (huboRecorte && primera !== undefined && compararIds(cursor, primera) < 0) ||
+      (borrado !== '0-0' && compararIds(cursor, borrado) < 0);
+    const hayMas = entradas.length > limite;
+    const eventos = entradas.slice(0, limite).map(eventoDesdeEntrada);
+    const stream_id = eventos.length
+      ? eventos[eventos.length - 1].stream_id
+      : campo(info, 'last-generated-id');
+    return {
+      eventos,
+      stream_id,
+      ...(recortado && { recortado }),
+      ...(hayMas && { hay_mas: true }),
+    };
+  } catch (err) {
+    throw traducirErrorRedis(err);
+  }
 }

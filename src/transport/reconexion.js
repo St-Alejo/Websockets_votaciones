@@ -4,7 +4,15 @@
 // del tópico. Si el stream fue recortado o el hueco es demasiado grande,
 // se cae a un snapshot completo.
 import { parsearTopico } from '../contratos/canales.js';
-import * as historialRedis from '../redis/historial.js';
+import { obtenerRedis } from '../redis/cliente.js';
+import { leerDesde as leerStream } from '../redis/historial.js';
+
+/** Adapta la firma de Persona 1: leerDesde(redis, cursor, max) y el campo hay_mas. */
+async function leerHistorialPublico(cursor, max) {
+  const hist = await leerStream(obtenerRedis(), cursor, max);
+  if (!hist) return hist;
+  return { ...hist, hayMas: Boolean(hist.hayMas || hist.hay_mas) };
+}
 
 /** Header Last-Event-ID gana sobre el query: es el cursor que el navegador reenvía. */
 export function leerCursor(req = {}) {
@@ -43,7 +51,7 @@ export async function decidirReanudacion(opciones = {}) {
   const cursor = opciones.cursor ?? null;
   const topico = opciones.topico;
   const limite = opciones.maxDeltas ?? 500;
-  const leer = opciones.historial?.leerDesde ?? historialRedis.leerDesde;
+  const leer = opciones.historial?.leerDesde ?? leerHistorialPublico;
   const foto =
     opciones.snapshot ??
     (async (niveles) => {
@@ -72,7 +80,7 @@ export async function decidirReanudacion(opciones = {}) {
     };
   }
 
-  if (!hist || hist.recortado || hist.hayMas || (hist.eventos?.length ?? 0) >= limite) {
+  if (!hist || hist.recortado || hist.hayMas || hist.hay_mas || (hist.eventos?.length ?? 0) >= limite) {
     let motivo = 'hueco_grande';
     if (!hist) motivo = 'historial_no_disponible';
     else if (hist.recortado) motivo = 'historial_recortado';

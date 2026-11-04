@@ -6,7 +6,7 @@ import {
   Snapshot,
   cumpleReglaContable,
 } from '../../src/contratos/esquemas.js';
-import { registrarActa, snapshot } from '../../src/dominio/index.js';
+import { registrarActa } from '../../src/dominio/index.js';
 import { ACTA_EJEMPLO } from '../helpers.js';
 
 describe('ActaEntrante', () => {
@@ -38,29 +38,28 @@ describe('ActaEntrante', () => {
 });
 
 describe('stubs respetan los esquemas', () => {
-  it('registrarActa devuelve RespuestaRegistro válidas', async () => {
-    const ok = await registrarActa({ ...ACTA_EJEMPLO, idem: 'humo-esquemas-0001' });
-    expect(RespuestaRegistro.parse(ok).estado).toBe('registrada');
-
-    const dudosa = await registrarActa({ ...ACTA_EJEMPLO, sufragantes: 1, idem: 'humo-esq-0002' });
-    expect(RespuestaRegistro.parse(dudosa).estado).toBe('dudosa');
-
+  // registrada/dudosa/duplicada necesitan Redis real: ver src/redis/actas.test.js (Persona 1).
+  it('registrarActa rechaza JSON inválido con una RespuestaRegistro válida (sin Redis)', async () => {
     const mala = await registrarActa({ acta: 'x' });
     expect(RespuestaRegistro.parse(mala).estado).toBe('rechazada');
   });
 
-  it('snapshot devuelve un Snapshot válido y jerárquicamente coherente', async () => {
-    const s = Snapshot.parse(await snapshot(['dep', 'mun:11', 'pue:176', 'mesa:4201']));
-    const { dep, 'mun:11': mun, 'pue:176': pue, 'mesa:4201': mesa } = s.niveles;
-    for (const [hijo, padre] of [
-      [mesa, pue],
-      [pue, mun],
-      [mun, dep],
-    ]) {
-      for (const [c, v] of Object.entries(hijo.votos))
-        expect(padre.votos[c]).toBeGreaterThanOrEqual(v);
-    }
-    expect(mesa.sufragantes).toBe(627);
+  // snapshot() necesita Redis real: Snapshot.parse y la coherencia jerárquica se prueban en
+  // src/redis/acumulados.test.js (Persona 1). Aquí solo el esquema.
+  it('Snapshot acepta una fotografía bien formada', () => {
+    const acum = {
+      nivel: 'mun',
+      id: '11',
+      votos: { C1: 1 },
+      sufragantes: 1,
+      mesas_informadas: 1,
+      mesas_totales: 4,
+      porcentaje_informado: 25,
+    };
+    expect(Snapshot.safeParse({ niveles: { 'mun:11': acum }, stream_id: '1-0' }).success).toBe(
+      true,
+    );
+    expect(Snapshot.safeParse({ niveles: {}, stream_id: 'x' }).success).toBe(false);
   });
 
   it('EventoActaNueva valida el formato del emisor falso', () => {

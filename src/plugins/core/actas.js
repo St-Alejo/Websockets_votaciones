@@ -22,6 +22,33 @@ function validarNivel(req, reply) {
 }
 
 export default async function actas(app) {
+  // RF-10: nunca un 200 silencioso ni una petición colgada. Si Redis no respondió, el jurado
+  // recibe un 503 explícito en ≤ REDIS_COMMAND_TIMEOUT_MS; reintentar con el mismo idem es
+  // seguro porque el registro es idempotente (si sí alcanzó a escribirse, verá "duplicada").
+  // Errores reconocidos por err.codigo (ErrorRedisNoDisponible / ErrorLimiteTasa de dominio).
+  app.setErrorHandler((err, req, reply) => {
+    if (err?.codigo === 'redis_no_disponible') {
+      req.log.warn({ msg: err.message }, 'redis no disponible');
+      return reply
+        .code(503)
+        .header('Retry-After', '2')
+        .send({
+          estado: 'no_registrada',
+          reintentar: true,
+          motivo:
+            'Redis no respondió: no se pudo confirmar el registro. Reintente con el mismo idem; ' +
+            'el reintento es seguro (si el acta alcanzó a registrarse, responderá "duplicada").',
+        });
+    }
+    if (err?.codigo === 'limite_tasa') {
+      return reply
+        .code(429)
+        .header('Retry-After', String(err.reintentarEnS))
+        .send({ error: 'limite_tasa', jurado: err.jurado, reintentar_en_s: err.reintentarEnS });
+    }
+    return reply.send(err);
+  });
+
   app.post('/actas', async (req, reply) => {
     const respuesta = await registrarActa(req.body);
     reply.code(HTTP_POR_ESTADO[respuesta.estado] ?? 200);

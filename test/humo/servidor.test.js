@@ -50,21 +50,21 @@ describe('servidor', () => {
     }
   });
 
-  it('POST /actas con el ejemplo del PDF → registrada y luego duplicada', async () => {
-    const acta = { ...ACTA_EJEMPLO, idem: 'humo-servidor-0001' };
-    const r1 = await app.inject({ method: 'POST', url: '/actas', payload: acta });
-    expect(r1.statusCode).toBe(201);
-    expect(r1.json().estado).toBe('registrada');
-    const r2 = await app.inject({ method: 'POST', url: '/actas', payload: acta });
-    expect(r2.json()).toMatchObject({ estado: 'duplicada', recibo: r1.json().recibo });
+  // El flujo registrada → duplicada necesita Redis real: ver src/plugins/core/actas.test.js.
+  it('POST /actas con un acta inválida → 400 rechazada (se valida antes de tocar Redis)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/actas',
+      payload: { ...ACTA_EJEMPLO, votos: {} },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toMatchObject({ estado: 'rechazada', recibo: null });
   });
 
-  it('GET /acumulado y /ranking devuelven datos coherentes', async () => {
-    const acum = (await app.inject('/acumulado/mun/11')).json();
-    expect(acum.porcentaje_informado).toBeGreaterThan(0);
-    const rank = (await app.inject('/ranking/dep?top=2')).json();
-    expect(rank).toHaveLength(2);
-    expect(rank[0].votos).toBeGreaterThanOrEqual(rank[1].votos);
+  // Los datos reales de /acumulado y /ranking se prueban con Redis en src/plugins/core/actas.test.js.
+  it('GET /acumulado y /ranking validan el nivel antes de tocar Redis', async () => {
+    expect((await app.inject('/acumulado/pais/1')).statusCode).toBe(400);
+    expect((await app.inject('/ranking/mun')).statusCode).toBe(400);
   });
 });
 

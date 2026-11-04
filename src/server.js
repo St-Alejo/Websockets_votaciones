@@ -7,6 +7,7 @@ import autoload from '@fastify/autoload';
 import websocket from '@fastify/websocket';
 import { cargarConfig } from './config.js';
 import { crearClientesRedis, registrarClientes } from './redis/cliente.js';
+import { configurarDominio } from './dominio/index.js';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 
@@ -26,10 +27,15 @@ export async function construirApp(opciones = {}) {
   let { redis, redisSub } = opciones;
   const clientesPropios = !redis;
   if (clientesPropios) {
-    ({ redis, redisSub } = crearClientesRedis(config.redisUrl));
-    for (const c of [redis, redisSub]) c.on('error', (err) => app.log.warn({ err }, 'redis'));
+    ({ redis, redisSub } = crearClientesRedis(config.redisUrl, {
+      commandTimeoutMs: config.redisCommandTimeoutMs,
+    }));
+    for (const c of [redis, redisSub]) {
+      c.on('error', (err) => app.log.warn({ msg: err.message }, 'redis'));
+    }
   }
   registrarClientes({ redis, redisSub });
+  configurarDominio(config);
 
   app.decorate('config', config);
   app.decorate('instanceId', config.instanceId);

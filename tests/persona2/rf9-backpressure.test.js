@@ -3,6 +3,7 @@ import { evaluar, leerPendiente } from '../../src/fanout/backpressure.js';
 import { crearMotor } from '../../src/fanout/engine.js';
 import { revisarPresion } from '../../src/fanout/index.js';
 import { reiniciarTopicos } from '../../src/fanout/topics.js';
+import { registrarClientes } from '../../src/redis/cliente.js';
 
 const umbrales = { suspender: 100, desconectar: 1000 };
 
@@ -98,6 +99,10 @@ describe('RF-9 contrapresión', () => {
   });
 
   it('el latido fuerza el snapshot cuando el buffer ya bajó', async () => {
+    registrarClientes({
+      redis: { snapshotLua: async () => [[], '0', '4-1'] },
+      redisSub: null,
+    });
     const conexion = {
       topico: 'dep',
       bufferedAmount: 0,
