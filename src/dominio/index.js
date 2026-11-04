@@ -10,6 +10,17 @@ import { parsearTopico, topico as aTopico } from '../contratos/canales.js';
 import { avisoStub } from '../contratos/stub.js';
 import { obtenerRedis } from '../redis/cliente.js';
 
+let configDominio = null;
+
+/** Lo llama server.js al arrancar: instancia, límite de tasa y retención del stream. */
+export function configurarDominio(config) {
+  configDominio = config;
+}
+
+export const configActual = () => configDominio;
+
+export { ErrorLimiteTasa, ErrorRedisNoDisponible } from './errores.js';
+
 const DATOS = JSON.parse(readFileSync(new URL('./datos-stub.json', import.meta.url), 'utf8'));
 const DUENO = 'Persona 1';
 
