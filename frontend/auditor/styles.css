@@ -158,3 +158,8 @@ code { background: #eef1f7; border-radius: 6px; padding: 0.1rem 0.35rem; font-si
   .sidebar nav { display: flex; }
   .mi-caso { flex: 1 1 100%; }
 }
+
+/* El atributo hidden debe ganarle a display: grid/flex de las reglas de arriba. */
+[hidden] {
+  display: none !important;
+}

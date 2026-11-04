@@ -45,3 +45,8 @@ th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-s
 .sm { font-size: 0.85rem; }
 code { background: #eef1f7; border-radius: 6px; padding: 0.1rem 0.35rem; font-size: 0.85em; }
 .estado { display: flex; gap: 0.5rem; align-items: center; }
+
+/* El atributo hidden debe ganarle a display: grid/flex de las reglas de arriba. */
+[hidden] {
+  display: none !important;
+}

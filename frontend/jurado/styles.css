@@ -48,3 +48,8 @@ legend { font-size: 0.85rem; color: var(--muted); }
 .toast.warn { background: #7a2e0e; }
 .toast.bad { background: #7a271a; }
 code { background: #eef1f7; border-radius: 6px; padding: 0.1rem 0.35rem; font-size: 0.85em; }
+
+/* El atributo hidden debe ganarle a display: grid/flex de las reglas de arriba. */
+[hidden] {
+  display: none !important;
+}
