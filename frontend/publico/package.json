@@ -1,0 +1,10 @@
+{
+  "name": "resultados-publicos",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Página pública de resultados vía SSE (Persona 3, consume transporte de Persona 2). Vanilla ESM sin build.",
+  "scripts": {
+    "dev": "npx --yes serve . -l 5176"
+  }
+}
