@@ -1,0 +1,45 @@
+# Dueño: Persona 1. Entorno completo: Redis (AOF) + 8 réplicas de la app + nginx en :8080.
+#   npm run compose:up      (equivale a: docker compose -f infra/docker-compose.yml up -d --build)
+#   npm run compose:down
+name: preconteo
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  app:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+      LOG_LEVEL: info
+      # Sin INSTANCE_ID: cada réplica usa su hostname (id del contenedor), distinto en las 8.
+    deploy:
+      replicas: 8
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      # 8080 por defecto; si está ocupado: NGINX_PORT=8081 npm run compose:up
+      - '${NGINX_PORT:-8080}:80'
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  redis-data:

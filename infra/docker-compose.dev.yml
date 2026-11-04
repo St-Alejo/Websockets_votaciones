@@ -1,0 +1,15 @@
+# Dueño: Persona 1. Solo Redis, para desarrollar con `npm run dev` (1 instancia en :3000).
+#   npm run redis:dev   (equivale a: docker compose -f infra/docker-compose.dev.yml up -d)
+name: preconteo-dev
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-dev-data:/data
+
+volumes:
+  redis-dev-data:

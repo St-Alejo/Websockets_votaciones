@@ -1,0 +1,40 @@
+{
+  "_comentario": "Datos fijos del STUB de Persona 1. Coherentes: mesa 4201 ⊂ puesto 176 ⊂ municipio 11 ⊂ departamento.",
+  "stream_id": "0-0",
+  "niveles": {
+    "dep": {
+      "votos": {
+        "C1": 120000,
+        "C2": 95000,
+        "C3": 150000,
+        "BLANCO": 12000,
+        "NULO": 4500,
+        "NO_MARCADO": 2500
+      },
+      "mesas_informadas": 640,
+      "mesas_totales": 6400
+    },
+    "mun:11": {
+      "votos": {
+        "C1": 5000,
+        "C2": 4000,
+        "C3": 7000,
+        "BLANCO": 500,
+        "NULO": 200,
+        "NO_MARCADO": 100
+      },
+      "mesas_informadas": 28,
+      "mesas_totales": 120
+    },
+    "pue:176": {
+      "votos": { "C1": 535, "C2": 305, "C3": 856, "BLANCO": 65, "NULO": 27, "NO_MARCADO": 12 },
+      "mesas_informadas": 3,
+      "mesas_totales": 8
+    },
+    "mesa:4201": {
+      "votos": { "C1": 184, "C2": 97, "C3": 311, "BLANCO": 22, "NULO": 9, "NO_MARCADO": 4 },
+      "mesas_informadas": 1,
+      "mesas_totales": 1
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "preconteo-tiempo-real",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Taller de WebSockets: transmisión y difusión de resultados de una jornada electoral (preconteo) sobre 8 instancias y un backplane en Redis.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/server.js",
+    "start": "node src/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "emisor:falso": "node --env-file-if-exists=.env scripts/emisor-falso.js",
+    "jurado:falso": "node --env-file-if-exists=.env scripts/jurado-falso.js",
+    "redis:dev": "docker compose -f infra/docker-compose.dev.yml up -d",
+    "compose:up": "docker compose -f infra/docker-compose.yml up -d --build",
+    "compose:down": "docker compose -f infra/docker-compose.yml down"
+  },
+  "dependencies": {
+    "@fastify/autoload": "^6.5.1",
+    "@fastify/websocket": "^11.3.6",
+    "fastify": "^5.12.8",
+    "ioredis": "^6.0.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "vitest": "^5.1.0"
+  }
+}
