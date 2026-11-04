@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Public results page via SSE (Person 3, consumes Person 2's transport). Vanilla ESM, no build.",
   "scripts": {
-    "dev": "npx --yes serve . -l 5176"
+    "dev": "npx --yes serve . -l 5176",
+    "start": "node server.mjs"
   }
 }
