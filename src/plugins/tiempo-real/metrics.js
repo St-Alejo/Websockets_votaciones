@@ -1,10 +1,7 @@
-// Dueño: Persona 2. GET /metrics (formato Prometheus).
+// Dueño: Persona 2. GET /metrics (formato Prometheus, RT-7).
 import { estadisticas } from '../../fanout/index.js';
-import { exponer } from '../../metrics/index.js';
+import { registrarRuta } from '../../metrics/dashboard.js';
 
 export default async function metrics(app) {
-  app.get('/metrics', async (_req, reply) => {
-    reply.type('text/plain; version=0.0.4');
-    return exponer({ instancia: app.instanceId, conexiones: estadisticas().suscripciones });
-  });
+  registrarRuta(app, () => estadisticas().conexiones);
 }

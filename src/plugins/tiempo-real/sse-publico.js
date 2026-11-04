@@ -1,13 +1,20 @@
 // Dueño: Persona 2. GET /sse/publico?topico=mun:11&ultimo_id=...
-// STUB: envía un snapshot inicial y latidos. Aún no reenvía eventos del backplane,
-// no recupera desde ultimo_id (RF-6) ni aplica contrapresión (RF-9).
 import { parsearTopico } from '../../contratos/canales.js';
-import { snapshot } from '../../dominio/index.js';
-import { desuscribir, suscribir } from '../../fanout/index.js';
+import {
+  desuscribir,
+  enlazarBackplane,
+  revisarPresion,
+  soltarRetenidos,
+  suscribir,
+} from '../../fanout/index.js';
+import { decidirReanudacion, directivaRetry, leerCursor } from '../../transport/reconexion.js';
+import { CABECERAS_SSE, crearConexionSse, iniciarLatido } from '../../transport/sse.js';
 
 const LATIDO_MS = 15_000;
 
 export default async function ssePublico(app) {
+  await enlazarBackplane(app.redisSub);
+
   app.get('/sse/publico', async (req, reply) => {
     const topico = req.query.topico ?? 'dep';
     try {
@@ -16,30 +23,58 @@ export default async function ssePublico(app) {
       return reply.code(400).send({ error: 'topico_invalido', ejemplo: 'mun:11' });
     }
 
+    const cursor = leerCursor(req);
     reply.hijack();
     const res = reply.raw;
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
+    res.writeHead(200, CABECERAS_SSE);
+    res.write(`retry: ${directivaRetry()}\n\n`);
 
-    const conexion = {
-      enviar(evento, datos, id) {
-        if (id) res.write(`id: ${id}\n`);
-        res.write(`event: ${evento}\ndata: ${JSON.stringify(datos)}\n\n`);
-      },
-    };
+    const conexion = crearConexionSse(res, { topico });
+    conexion.acepta = false;
     suscribir(conexion, topico);
 
-    const foto = await snapshot([topico]);
-    conexion.enviar('snapshot', { ...foto, instancia: app.instanceId }, foto.stream_id);
-
-    const latido = setInterval(() => res.write(': latido\n\n'), LATIDO_MS);
-    req.raw.on('close', () => {
-      clearInterval(latido);
-      desuscribir(conexion, topico);
+    let cerrado = false;
+    const detenerLatido = iniciarLatido(res, LATIDO_MS, {
+      alLatido: () => revisarPresion(conexion),
     });
+    const cerrar = () => {
+      if (cerrado) return;
+      cerrado = true;
+      conexion.cerrada = true;
+      detenerLatido();
+      desuscribir(conexion, topico);
+    };
+    req.raw.on('close', cerrar);
+    res.on('error', cerrar);
+
+    try {
+      const plan = await decidirReanudacion({ cursor, topico });
+      if (res.destroyed || res.writableEnded) {
+        cerrar();
+        return;
+      }
+      if (plan.modo === 'snapshot') {
+        const foto = { ...plan.snapshot, instancia: app.instanceId };
+        conexion.vistoHasta = plan.snapshot.stream_id;
+        conexion.enviar('snapshot', foto, plan.snapshot.stream_id);
+      } else {
+        conexion.vistoHasta = cursor;
+        for (const ev of plan.eventos) {
+          conexion.enviar(
+            'delta',
+            { topico, stream_id: ev.stream_id, eventos: [ev] },
+            ev.stream_id,
+          );
+          conexion.vistoHasta = ev.stream_id;
+        }
+      }
+      soltarRetenidos(conexion);
+    } catch (err) {
+      app.log.error({ err }, 'sse reanudacion');
+      if (!res.writableEnded && !res.destroyed) {
+        conexion.enviar('error', { motivo: 'reanudacion_fallida' });
+        soltarRetenidos(conexion);
+      }
+    }
   });
 }
