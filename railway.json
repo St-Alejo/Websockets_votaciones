@@ -2,8 +2,8 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": { "builder": "DOCKERFILE", "dockerfilePath": "infra/Dockerfile" },
   "deploy": {
-    "startCommand": "sh -c 'node scripts/seed-catalogo.js && node src/server.js'",
-    "healthcheckPath": "/instancia",
+    "startCommand": "sh -c 'node scripts/seed-catalog.js && node src/server.js'",
+    "healthcheckPath": "/instance",
     "restartPolicyType": "ON_FAILURE"
   }
 }

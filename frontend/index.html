@@ -1,25 +1,25 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Preconteo en tiempo real</title>
+    <title>Real-time quick count</title>
     <style>
       :root {
         color-scheme: light dark;
-        --fondo: #f4f5fb;
-        --tarjeta: #ffffff;
-        --texto: #161a33;
-        --suave: #5b6078;
-        --acento: #3f4bd8;
+        --background: #f4f5fb;
+        --card: #ffffff;
+        --text: #161a33;
+        --soft: #5b6078;
+        --accent: #3f4bd8;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --fondo: #10132a;
-          --tarjeta: #1a1e3a;
-          --texto: #eef0ff;
-          --suave: #a5aac8;
-          --acento: #8c95ff;
+          --background: #10132a;
+          --card: #1a1e3a;
+          --text: #eef0ff;
+          --soft: #a5aac8;
+          --accent: #8c95ff;
         }
       }
       body {
@@ -27,8 +27,8 @@
         min-height: 100vh;
         display: grid;
         place-items: center;
-        background: var(--fondo);
-        color: var(--texto);
+        background: var(--background);
+        color: var(--text);
         font-family: system-ui, sans-serif;
       }
       main {
@@ -39,39 +39,39 @@
       }
       p {
         margin: 0 0 24px;
-        color: var(--suave);
+        color: var(--soft);
       }
       a {
         display: block;
         margin-bottom: 12px;
         padding: 18px 20px;
         border-radius: 12px;
-        background: var(--tarjeta);
-        color: var(--texto);
+        background: var(--card);
+        color: var(--text);
         text-decoration: none;
         box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
       }
       a:hover {
-        outline: 2px solid var(--acento);
+        outline: 2px solid var(--accent);
       }
       strong {
         display: block;
-        color: var(--acento);
+        color: var(--accent);
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Preconteo en tiempo real</h1>
-      <p>Elige la aplicación.</p>
-      <a href="./publico/?topico=dep"
-        ><strong>Resultados públicos</strong>Acumulado en vivo por Server-Sent Events.</a
+      <h1>Real-time quick count</h1>
+      <p>Choose the application.</p>
+      <a href="./public/?topic=dept"
+        ><strong>Public results</strong>Live totals via Server-Sent Events.</a
       >
-      <a href="./jurado/"
-        ><strong>App del jurado</strong>Envío de actas por WebSocket, funciona sin conexión.</a
+      <a href="./juror/"
+        ><strong>Juror app</strong>Submit tallies over WebSocket, works offline.</a
       >
       <a href="./auditor/"
-        ><strong>Consola de auditoría</strong>Cola de verificación, bloqueos y presencia.</a
+        ><strong>Audit console</strong>Verification queue, locks and presence.</a
       >
     </main>
   </body>

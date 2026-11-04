@@ -1,120 +1,111 @@
-// Dueño: Persona 2. Tablero /metrics por instancia (RT-7).
-// Expone conexiones activas, mensajes por segundo, lag del Event Loop,
-// memoria estimada por conexión y la latencia recepción de acta → publicación.
-import { leerLag } from './event_loop_lag.js';
+import { readLag } from './event_loop_lag.js';
 
-const VENTANA_MS = 1000;
-const TOPE_LATENCIAS = 256;
+const WINDOW_MS = 1000;
+const MAX_LATENCIES = 256;
 
-const estado = {
+const state = {
   total: 0,
-  /** @type {number[]} timestamps de cada mensaje publicado, para la tasa. */
-  marcas: [],
-  /** @type {number[]} ms entre recepción y publicación. */
-  latencias: [],
+  marks: [],
+  latencies: [],
 };
 
-function escapar(valor) {
-  return String(valor ?? '')
+function escapeLabel(value) {
+  return String(value ?? '')
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
     .replace(/\n/g, '');
 }
 
-function podar(ahora) {
-  const corte = ahora - VENTANA_MS;
-  while (estado.marcas.length > 0 && estado.marcas[0] < corte) estado.marcas.shift();
+function prune(now) {
+  const cutoff = now - WINDOW_MS;
+  while (state.marks.length > 0 && state.marks[0] < cutoff) state.marks.shift();
 }
 
-function media(valores) {
-  if (valores.length === 0) return 0;
-  let suma = 0;
-  for (const v of valores) suma += v;
-  return suma / valores.length;
+function mean(values) {
+  if (values.length === 0) return 0;
+  let sum = 0;
+  for (const v of values) sum += v;
+  return sum / values.length;
 }
 
-/** Cuenta mensajes que sí salieron hacia el público. `recibidoEn` mide la latencia. */
-export function registrarPublicacion(info = {}) {
+export function recordPublish(info = {}) {
   const n = info.n ?? 1;
-  const publicadoEn = info.publicadoEn ?? Date.now();
-  for (let i = 0; i < n; i += 1) estado.marcas.push(publicadoEn);
-  estado.total += n;
-  if (info.recibidoEn != null) {
-    estado.latencias.push(Math.max(0, publicadoEn - info.recibidoEn));
-    if (estado.latencias.length > TOPE_LATENCIAS) {
-      estado.latencias.splice(0, estado.latencias.length - TOPE_LATENCIAS);
+  const publishedAt = info.publishedAt ?? Date.now();
+  for (let i = 0; i < n; i += 1) state.marks.push(publishedAt);
+  state.total += n;
+  if (info.receivedAt != null) {
+    state.latencies.push(Math.max(0, publishedAt - info.receivedAt));
+    if (state.latencies.length > MAX_LATENCIES) {
+      state.latencies.splice(0, state.latencies.length - MAX_LATENCIES);
     }
   }
-  podar(publicadoEn);
+  prune(publishedAt);
 }
 
-/** Compatibilidad con el stub anterior: solo incrementa el contador. */
-export function contarMensajes(n = 1) {
-  registrarPublicacion({ n });
+export function countMessages(n = 1) {
+  recordPublish({ n });
 }
 
-export function reiniciarMetricas() {
-  estado.total = 0;
-  estado.marcas.length = 0;
-  estado.latencias.length = 0;
+export function resetMetrics() {
+  state.total = 0;
+  state.marks.length = 0;
+  state.latencies.length = 0;
 }
 
-export function leerTablero({ instancia, conexiones = 0 } = {}) {
-  const ahora = Date.now();
-  podar(ahora);
-  const lag = leerLag();
+export function readDashboard({ instance, connections = 0 } = {}) {
+  const now = Date.now();
+  prune(now);
+  const lag = readLag();
   const rss = process.memoryUsage().rss;
-  const activas = conexiones ?? 0;
+  const active = connections ?? 0;
   return {
-    instancia,
-    conexiones_activas: activas,
-    mensajes_emitidos_total: estado.total,
-    mensajes_por_segundo: estado.marcas.length,
+    instance,
+    active_connections: active,
+    messages_sent_total: state.total,
+    messages_per_second: state.marks.length,
     event_loop_lag_ms: lag.mean_ms,
     event_loop_lag_p99_ms: lag.p99_ms,
     event_loop_lag_max_ms: lag.max_ms,
-    memoria_por_conexion_bytes: activas > 0 ? Math.round(rss / activas) : 0,
-    memoria_rss_bytes: rss,
-    latencia_acta_publicacion_ms: media(estado.latencias),
+    memory_per_connection_bytes: active > 0 ? Math.round(rss / active) : 0,
+    memory_rss_bytes: rss,
+    tally_publish_latency_ms: mean(state.latencies),
   };
 }
 
-/** Texto Prometheus. `conexiones` es el número de clientes vivos de esta instancia. */
-export function exponer({ instancia, conexiones = 0 } = {}) {
-  const t = leerTablero({ instancia, conexiones });
-  const etiqueta = `{instancia="${escapar(instancia)}"}`;
-  const linea = (nombre, valor) => `${nombre}${etiqueta} ${valor}`;
+export function expose({ instance, connections = 0 } = {}) {
+  const t = readDashboard({ instance, connections });
+  const label = `{instance="${escapeLabel(instance)}"}`;
+  const line = (name, value) => `${name}${label} ${value}`;
   return [
-    '# HELP preconteo_conexiones Conexiones activas en la instancia',
-    '# TYPE preconteo_conexiones gauge',
-    linea('preconteo_conexiones', t.conexiones_activas),
-    '# HELP preconteo_mensajes_emitidos_total Mensajes publicados al público',
-    '# TYPE preconteo_mensajes_emitidos_total counter',
-    linea('preconteo_mensajes_emitidos_total', t.mensajes_emitidos_total),
-    '# HELP preconteo_mensajes_por_segundo Mensajes publicados en el último segundo',
-    '# TYPE preconteo_mensajes_por_segundo gauge',
-    linea('preconteo_mensajes_por_segundo', t.mensajes_por_segundo),
-    '# HELP preconteo_eventloop_lag_ms Retraso medio del Event Loop',
+    '# HELP preconteo_connections Active connections on the instance',
+    '# TYPE preconteo_connections gauge',
+    line('preconteo_connections', t.active_connections),
+    '# HELP preconteo_messages_sent_total Messages published to the public',
+    '# TYPE preconteo_messages_sent_total counter',
+    line('preconteo_messages_sent_total', t.messages_sent_total),
+    '# HELP preconteo_messages_per_second Messages published in the last second',
+    '# TYPE preconteo_messages_per_second gauge',
+    line('preconteo_messages_per_second', t.messages_per_second),
+    '# HELP preconteo_eventloop_lag_ms Mean Event Loop delay',
     '# TYPE preconteo_eventloop_lag_ms gauge',
-    linea('preconteo_eventloop_lag_ms', t.event_loop_lag_ms.toFixed(3)),
-    linea('preconteo_eventloop_delay_p99_ms', t.event_loop_lag_p99_ms.toFixed(3)),
-    linea('preconteo_eventloop_delay_max_ms', t.event_loop_lag_max_ms.toFixed(3)),
-    '# HELP preconteo_memoria_por_conexion_bytes RSS de la instancia repartido entre conexiones',
-    '# TYPE preconteo_memoria_por_conexion_bytes gauge',
-    linea('preconteo_memoria_por_conexion_bytes', t.memoria_por_conexion_bytes),
-    linea('preconteo_memoria_rss_bytes', t.memoria_rss_bytes),
-    '# HELP preconteo_latencia_acta_publicacion_ms Latencia media recepción de acta → publicación',
-    '# TYPE preconteo_latencia_acta_publicacion_ms gauge',
-    linea('preconteo_latencia_acta_publicacion_ms', t.latencia_acta_publicacion_ms.toFixed(3)),
+    line('preconteo_eventloop_lag_ms', t.event_loop_lag_ms.toFixed(3)),
+    line('preconteo_eventloop_delay_p99_ms', t.event_loop_lag_p99_ms.toFixed(3)),
+    line('preconteo_eventloop_delay_max_ms', t.event_loop_lag_max_ms.toFixed(3)),
+    '# HELP preconteo_memory_per_connection_bytes Instance RSS divided among connections',
+    '# TYPE preconteo_memory_per_connection_bytes gauge',
+    line('preconteo_memory_per_connection_bytes', t.memory_per_connection_bytes),
+    line('preconteo_memory_rss_bytes', t.memory_rss_bytes),
+    '# HELP preconteo_tally_publish_latency_ms Mean latency from tally reception to publication',
+    '# TYPE preconteo_tally_publish_latency_ms gauge',
+    line('preconteo_tally_publish_latency_ms', t.tally_publish_latency_ms.toFixed(3)),
     '',
   ].join('\n');
 }
 
-/** Registra GET /metrics. `obtenerConexiones` la aporta el fan-out de esta instancia. */
-export function registrarRuta(app, obtenerConexiones) {
+export function registerRoute(app, getConnections) {
   app.get('/metrics', async (_req, reply) => {
-    const conexiones = typeof obtenerConexiones === 'function' ? obtenerConexiones() : 0;
+    const connections = typeof getConnections === 'function' ? getConnections() : 0;
     reply.type('text/plain; version=0.0.4');
-    return exponer({ instancia: app.instanceId, conexiones });
+    return expose({ instance: app.instanceId, connections });
   });
 }

@@ -1,156 +1,150 @@
-// Consola de auditores: cola en vivo + presencia + toma colaborativa.
-// La asignación la confirma el servidor (bloqueo Redis); aquí solo se pide.
-import { crearStore } from './store.js';
-import { crearClienteWS, urlPorDefecto } from './ws.js';
+import { createStore } from './store.js';
+import { createWsClient, defaultUrl } from './ws.js';
 import {
-  MENSAJES_ERROR,
+  ERROR_MESSAGES,
   escapeHtml,
-  pintar,
-  pintarCola,
-  pintarPresencia,
+  render,
+  renderQueue,
+  renderPresence,
   toast,
 } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
-const store = crearStore();
+const store = createStore();
 const refs = {
-  badge: $('badge-conexion'),
-  stPend: $('st-pend'),
-  stAsig: $('st-asig'),
-  stRes: $('st-res'),
-  stOn: $('st-on'),
-  stOff: $('st-off'),
-  miCaso: $('mi-caso'),
+  badge: $('connection-badge'),
+  stPending: $('st-pending'),
+  stAssigned: $('st-assigned'),
+  stResolved: $('st-resolved'),
+  stOnline: $('st-online'),
+  stOffline: $('st-offline'),
+  myCase: $('my-case'),
   log: $('log'),
-  tbodyCola: $('tbody-cola'),
-  tbodyPresencia: $('tbody-presencia'),
+  tbodyQueue: $('tbody-queue'),
+  tbodyPresence: $('tbody-presence'),
   toasts: $('toasts'),
 };
 
-const filtros = { texto: '', estado: 'todas', prioMin: '' };
-function repintar() {
-  pintar(store.estado, refs);
-  pintarCola(store.estado, refs, filtros);
-  pintarPresencia(store.estado, refs);
+const filters = { text: '', status: 'all', minPrio: '' };
+function rerender() {
+  render(store.state, refs);
+  renderQueue(store.state, refs, filters);
+  renderPresence(store.state, refs);
 }
-store.suscribir(repintar);
-// Refresca los "hace Xs" cada 10 s.
-setInterval(() => pintarPresencia(store.estado, refs), 10_000);
+store.subscribe(rerender);
+setInterval(() => renderPresence(store.state, refs), 10_000);
 
-const cliente = crearClienteWS({
-  obtenerActaActual: () => store.estado.miCaso?.acta ?? null,
-  onEstado: (e) => {
-    store.actualizar({ conectada: e === 'conectada' ? true : e === 'desconectada' ? 'x' : 'c' });
+const client = createWsClient({
+  getCurrentTally: () => store.state.myCase?.tally ?? null,
+  onStatus: (s) => {
+    store.update({ connected: s === 'connected' ? true : s === 'disconnected' ? 'x' : 'c' });
   },
-  onAbierto: () => {
-    cliente.enviar({ tipo: 'latido', acta: store.estado.miCaso?.acta ?? null });
-    store.agregarLog('Conexión establecida con el servidor.');
+  onOpen: () => {
+    client.send({ type: 'heartbeat', tally: store.state.myCase?.tally ?? null });
+    store.addLog('Connection established with the server.');
   },
-  onMensaje: (msg) => alRecibir(msg),
+  onMessage: (msg) => onReceive(msg),
 });
 
-function alRecibir(msg) {
-  const e = store.estado;
-  switch (msg.tipo) {
-    case 'hola':
-      store.actualizar({ instancia: msg.instancia, cola: msg.cola ?? [], presentes: msg.presentes ?? [] });
-      store.marcarVistos(msg.presentes ?? []);
-      $('subtitulo').textContent = `Instancia ${msg.instancia} · ${msg.cola?.length ?? 0} actas en cola`;
-      store.agregarLog(`Hola de ${msg.instancia}: ${msg.cola?.length ?? 0} actas, ${msg.presentes?.length ?? 0} en línea.`);
+function onReceive(msg) {
+  const e = store.state;
+  switch (msg.type) {
+    case 'hello':
+      store.update({ instance: msg.instance, queue: msg.queue ?? [], present: msg.present ?? [] });
+      store.markSeen(msg.present ?? []);
+      $('subtitle').textContent = `Instance ${msg.instance} · ${msg.queue?.length ?? 0} tallies in queue`;
+      store.addLog(`Hello from ${msg.instance}: ${msg.queue?.length ?? 0} tallies, ${msg.present?.length ?? 0} online.`);
       break;
-    case 'latido_ok':
+    case 'heartbeat_ok':
       break;
-    case 'caso':
-      if (!msg.caso) {
-        toast(refs.toasts, 'Cola vacía o todo ocupado. Intenta de nuevo en unos segundos.');
+    case 'case':
+      if (!msg.case) {
+        toast(refs.toasts, 'Queue empty or everything taken. Try again in a few seconds.');
       } else {
-        store.actualizar({ miCaso: msg.caso });
-        store.agregarLog(`Tomaste ${msg.caso.acta} (token ${msg.caso.token.slice(0, 8)}…).`, 'e-asignada');
-        toast(refs.toasts, `Caso asignado: ${msg.caso.acta}`);
+        store.update({ myCase: msg.case });
+        store.addLog(`You took ${msg.case.tally} (token ${msg.case.token.slice(0, 8)}…).`, 'e-assigned');
+        toast(refs.toasts, `Case assigned: ${msg.case.tally}`);
       }
       break;
-    case 'liberado':
+    case 'released':
       if (msg.ok) {
-        if (e.miCaso?.acta === msg.acta) store.actualizar({ miCaso: null });
-        store.agregarLog(`Liberaste ${msg.acta}.`, 'e-liberada');
+        if (e.myCase?.tally === msg.tally) store.update({ myCase: null });
+        store.addLog(`You released ${msg.tally}.`, 'e-released');
       } else {
-        toast(refs.toasts, `No se pudo liberar ${msg.acta}: el bloqueo ya no es tuyo.`, 'warn');
+        toast(refs.toasts, `Could not release ${msg.tally}: the lock is no longer yours.`, 'warn');
       }
       break;
-    case 'completado':
+    case 'completed':
       if (msg.ok) {
-        if (e.miCaso?.acta === msg.acta) store.actualizar({ miCaso: null });
-        store.actualizar({ resueltasSesion: e.resueltasSesion + 1 });
-        store.agregarLog(`Completaste ${msg.acta}.`, 'e-resuelta');
-        toast(refs.toasts, `Acta resuelta: ${msg.acta}`);
+        if (e.myCase?.tally === msg.tally) store.update({ myCase: null });
+        store.update({ resolvedThisSession: e.resolvedThisSession + 1 });
+        store.addLog(`You completed ${msg.tally}.`, 'e-resolved');
+        toast(refs.toasts, `Tally resolved: ${msg.tally}`);
       } else {
-        toast(refs.toasts, `No se pudo completar ${msg.acta}: el bloqueo ya no es tuyo.`, 'warn');
+        toast(refs.toasts, `Could not complete ${msg.tally}: the lock is no longer yours.`, 'warn');
       }
       break;
-    case 'bloqueo_perdido':
-      store.actualizar({ miCaso: null });
-      store.agregarLog(`Perdiste el bloqueo de ${msg.acta} (otro auditor la tomó).`, 'e-liberada');
-      toast(refs.toasts, `Bloqueo perdido: ${msg.acta}`, 'warn');
+    case 'lock_lost':
+      store.update({ myCase: null });
+      store.addLog(`You lost the lock on ${msg.tally} (another auditor took it).`, 'e-released');
+      toast(refs.toasts, `Lock lost: ${msg.tally}`, 'warn');
       break;
-    case 'cola':
-      store.actualizar({ cola: msg.cola ?? [] });
-      if (msg.evento) {
-        const ev = msg.evento;
-        const quien = ev.auditor ? ` por ${escapeHtml(ev.auditor)}` : '';
-        store.agregarLog(`Acta ${ev.acta}: ${ev.tipo}${quien}.`, `e-${ev.tipo}`);
+    case 'queue':
+      store.update({ queue: msg.queue ?? [] });
+      if (msg.event) {
+        const ev = msg.event;
+        const who = ev.auditor ? ` by ${escapeHtml(ev.auditor)}` : '';
+        store.addLog(`Tally ${ev.tally}: ${ev.type}${who}.`, `e-${ev.type}`);
       }
       break;
-    case 'presentes':
-      store.actualizar({ presentes: msg.presentes ?? [] });
-      store.marcarVistos(msg.presentes ?? []);
-      if (msg.evento) store.marcarEventoPresencia(msg.evento);
+    case 'present':
+      store.update({ present: msg.present ?? [] });
+      store.markSeen(msg.present ?? []);
+      if (msg.event) store.markPresenceEvent(msg.event);
       break;
     case 'error':
-      toast(refs.toasts, MENSAJES_ERROR[msg.motivo] ?? `Error: ${msg.motivo}`, 'bad');
+      toast(refs.toasts, ERROR_MESSAGES[msg.reason] ?? `Error: ${msg.reason}`, 'bad');
       break;
     default:
       break;
   }
 }
 
-// Acciones de la tabla (delegación).
 document.querySelector('.main').addEventListener('click', (ev) => {
-  const btn = ev.target.closest('[data-accion]');
+  const btn = ev.target.closest('[data-action]');
   if (!btn) return;
-  const accion = btn.dataset.accion;
-  const miCaso = store.estado.miCaso;
-  if (accion === 'tomar') {
-    cliente.enviar({ tipo: 'tomar' });
-  } else if ((accion === 'liberar' || accion === 'liberar-mio') && miCaso) {
-    cliente.enviar({ tipo: 'liberar', acta: miCaso.acta, token: miCaso.token });
-  } else if ((accion === 'completar' || accion === 'completar-mio') && miCaso) {
-    if (confirm(`¿Marcar ${miCaso.acta} como verificada y sacarla de la cola?`)) {
-      cliente.enviar({ tipo: 'completar', acta: miCaso.acta, token: miCaso.token });
+  const action = btn.dataset.action;
+  const myCase = store.state.myCase;
+  if (action === 'take') {
+    client.send({ type: 'take' });
+  } else if ((action === 'release' || action === 'release-mine') && myCase) {
+    client.send({ type: 'release', tally: myCase.tally, token: myCase.token });
+  } else if ((action === 'complete' || action === 'complete-mine') && myCase) {
+    if (confirm(`Mark ${myCase.tally} as verified and remove it from the queue?`)) {
+      client.send({ type: 'complete', tally: myCase.tally, token: myCase.token });
     }
   }
 });
 
-// Filtros y refrescos.
-$('f-texto').addEventListener('input', (ev) => {
-  filtros.texto = ev.target.value;
-  pintarCola(store.estado, refs, filtros);
+$('f-text').addEventListener('input', (ev) => {
+  filters.text = ev.target.value;
+  renderQueue(store.state, refs, filters);
 });
-$('f-estado').addEventListener('change', (ev) => {
-  filtros.estado = ev.target.value;
-  pintarCola(store.estado, refs, filtros);
+$('f-status').addEventListener('change', (ev) => {
+  filters.status = ev.target.value;
+  renderQueue(store.state, refs, filters);
 });
 $('f-prio').addEventListener('input', (ev) => {
-  filtros.prioMin = ev.target.value;
-  pintarCola(store.estado, refs, filtros);
+  filters.minPrio = ev.target.value;
+  renderQueue(store.state, refs, filters);
 });
-$('btn-refrescar').addEventListener('click', () => cliente.enviar({ tipo: 'cola' }));
-$('btn-presencia').addEventListener('click', () => cliente.enviar({ tipo: 'presentes' }));
-$('btn-salir').addEventListener('click', () => {
-  cliente.cerrar();
+$('btn-refresh').addEventListener('click', () => client.send({ type: 'queue' }));
+$('btn-presence').addEventListener('click', () => client.send({ type: 'present' }));
+$('btn-exit').addEventListener('click', () => {
+  client.close();
   location.reload();
 });
 
-// Login.
 const params = new URLSearchParams(location.search);
 if (params.get('auditor')) $('login-auditor').value = params.get('auditor');
 if (params.get('ws')) $('login-ws').value = params.get('ws');
@@ -159,13 +153,13 @@ $('login-form').addEventListener('submit', (ev) => {
   ev.preventDefault();
   const auditor = $('login-auditor').value.trim();
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(auditor)) {
-    toast(refs.toasts, 'ID inválido: usa letras, números, _ o - (máx. 64).', 'bad');
+    toast(refs.toasts, 'Invalid ID: use letters, digits, _ or - (max. 64).', 'bad');
     return;
   }
-  const wsUrl = $('login-ws').value.trim() || urlPorDefecto(auditor);
-  store.actualizar({ auditor });
-  $('chip-auditor').textContent = auditor;
+  const wsUrl = $('login-ws').value.trim() || defaultUrl(auditor);
+  store.update({ auditor });
+  $('auditor-chip').textContent = auditor;
   $('login').hidden = true;
   $('app').hidden = false;
-  cliente.conectar(wsUrl);
+  client.connect(wsUrl);
 });

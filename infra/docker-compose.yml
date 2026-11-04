@@ -1,13 +1,8 @@
-# Dueño: Persona 1. Entorno completo: Redis (AOF) + 8 réplicas de la app + nginx en :8080.
-#   npm run compose:up      (equivale a: docker compose -f infra/docker-compose.yml up -d --build)
-#   npm run compose:down
 name: preconteo
 
 services:
   redis:
     image: redis:7-alpine
-    # AOF everysec: pierde como máximo ~1 s ante un corte. hash-max-listpack-value 128: los
-    # HASH acta:* (con el JSON de votos) siguen en listpack compacto (−34 % de memoria medido).
     command:
       [
         'redis-server',
@@ -26,12 +21,11 @@ services:
       timeout: 2s
       retries: 15
 
-  # Carga una vez los totales del catálogo (cat:...:mesas) y termina. Idempotente.
   seed:
     build:
       context: ..
       dockerfile: infra/Dockerfile
-    command: ['node', 'scripts/seed-catalogo.js']
+    command: ['node', 'scripts/seed-catalog.js']
     environment:
       REDIS_URL: redis://redis:6379
     restart: 'no'
@@ -49,9 +43,8 @@ services:
       LOG_LEVEL: info
       REDIS_COMMAND_TIMEOUT_MS: 1000
       RL_MAX: 20
-      RL_VENTANA_MS: 60000
+      RL_WINDOW_MS: 60000
       STREAM_MAXLEN: 10000
-      # Sin INSTANCE_ID: cada réplica usa su hostname (id del contenedor), distinto en las 8.
     deploy:
       replicas: 8
     depends_on:
@@ -63,7 +56,6 @@ services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      # 8080 por defecto; si está ocupado: NGINX_PORT=8081 npm run compose:up
       - '${NGINX_PORT:-8080}:80'
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro

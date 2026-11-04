@@ -1,42 +1,38 @@
-// Cliente WS del auditor con reconexión (backoff exponencial + jitter)
-// y latido periódico. El servidor confirma cada asignación; aquí nunca
-// se decide disponibilidad.
 import { API_WS } from '../../config.js';
-export function crearClienteWS({ obtenerActaActual, onAbierto, onMensaje, onEstado }) {
+export function createWsClient({ getCurrentTally, onOpen, onMessage, onStatus }) {
   let socket = null;
   let manual = false;
-  let intento = 0;
-  let latidoTimer = null;
+  let attempt = 0;
+  let heartbeatTimer = null;
   let url = null;
 
-  const demora = () => {
-    const base = Math.min(30_000, 1000 * 2 ** intento);
+  const delay = () => {
+    const base = Math.min(30_000, 1000 * 2 ** attempt);
     return base + Math.random() * 500;
   };
 
-  function conectar(nuevaUrl) {
-    if (nuevaUrl) url = nuevaUrl;
+  function connect(newUrl) {
+    if (newUrl) url = newUrl;
     manual = false;
-    abrir();
+    open();
   }
 
-  function abrir() {
-    onEstado?.('conectando');
+  function open() {
+    onStatus?.('connecting');
     try {
       socket = new WebSocket(url);
     } catch {
-      reintentar();
+      retry();
       return;
     }
     socket.onopen = () => {
-      intento = 0;
-      onEstado?.('conectada');
-      clearInterval(latidoTimer);
-      // Latido de presencia cada 15 s (TTL del servidor: 45 s).
-      latidoTimer = setInterval(() => {
-        enviar({ tipo: 'latido', acta: obtenerActaActual?.() ?? null });
+      attempt = 0;
+      onStatus?.('connected');
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(() => {
+        send({ type: 'heartbeat', tally: getCurrentTally?.() ?? null });
       }, 15_000);
-      onAbierto?.();
+      onOpen?.();
     };
     socket.onmessage = (ev) => {
       let msg;
@@ -45,26 +41,26 @@ export function crearClienteWS({ obtenerActaActual, onAbierto, onMensaje, onEsta
       } catch {
         return;
       }
-      onMensaje?.(msg);
+      onMessage?.(msg);
     };
-    socket.onerror = () => onEstado?.('conectando');
+    socket.onerror = () => onStatus?.('connecting');
     socket.onclose = () => {
-      clearInterval(latidoTimer);
-      onEstado?.('desconectada');
-      if (!manual) reintentar();
+      clearInterval(heartbeatTimer);
+      onStatus?.('disconnected');
+      if (!manual) retry();
     };
   }
 
-  function reintentar() {
-    const ms = demora();
-    intento += 1;
-    onEstado?.(`reintentando en ${Math.round(ms / 1000)}s`);
+  function retry() {
+    const ms = delay();
+    attempt += 1;
+    onStatus?.(`retrying in ${Math.round(ms / 1000)}s`);
     setTimeout(() => {
-      if (!manual) abrir();
+      if (!manual) open();
     }, ms);
   }
 
-  function enviar(msg) {
+  function send(msg) {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(msg));
       return true;
@@ -72,20 +68,19 @@ export function crearClienteWS({ obtenerActaActual, onAbierto, onMensaje, onEsta
     return false;
   }
 
-  function cerrar() {
+  function close() {
     manual = true;
-    clearInterval(latidoTimer);
+    clearInterval(heartbeatTimer);
     try {
-      socket?.close(1000, 'salida');
+      socket?.close(1000, 'exit');
     } catch {
-      /* ya cerrado */
+      return;
     }
   }
 
-  return { conectar, enviar, cerrar };
+  return { connect, send, close };
 }
 
-// URL por defecto: mismo origen (funciona detrás de nginx que proxea /ws/).
-export function urlPorDefecto(auditor) {
+export function defaultUrl(auditor) {
   return `${API_WS}/ws/auditor?auditor=${encodeURIComponent(auditor)}`;
 }

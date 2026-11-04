@@ -2,7 +2,7 @@
   "name": "preconteo-tiempo-real",
   "version": "0.1.0",
   "private": true,
-  "description": "Taller de WebSockets: transmisión y difusión de resultados de una jornada electoral (preconteo) sobre 8 instancias y un backplane en Redis.",
+  "description": "WebSockets workshop: transmission and broadcast of election-day results (preliminary count) across 8 instances with a Redis backplane.",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -15,8 +15,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "emisor:falso": "node --env-file-if-exists=.env scripts/emisor-falso.js",
-    "jurado:falso": "node --env-file-if-exists=.env scripts/jurado-falso.js",
+    "fake:emitter": "node --env-file-if-exists=.env scripts/fake-emitter.js",
+    "fake:juror": "node --env-file-if-exists=.env scripts/fake-juror.js",
     "redis:dev": "docker compose -f infra/docker-compose.dev.yml up -d",
     "compose:up": "docker compose -f infra/docker-compose.yml up -d --build",
     "compose:down": "docker compose -f infra/docker-compose.yml down"

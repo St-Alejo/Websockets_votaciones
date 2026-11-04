@@ -1,9 +1,9 @@
 {
-  "name": "consola-auditores",
+  "name": "auditor-console",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Consola colaborativa de auditores (Persona 3). Vanilla ESM sin build: servir estático y abrir en el navegador.",
+  "description": "Collaborative auditor console (Person 3). Vanilla ESM, no build: serve statically and open in the browser.",
   "scripts": {
     "dev": "npx --yes serve . -l 5174"
   }

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Juror app — Quick count (offline-first)</title>
+    <meta name="description" content="Tally entry with an offline queue: saves first, transmits when the connection returns." />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="login" class="login">
+      <form id="login-form" class="login-card" autocomplete="off">
+        <h1>Juror app</h1>
+        <p class="muted">Works offline: the tally is saved on this device and sent automatically when the network returns.</p>
+        <label>Juror ID <input id="login-juror" placeholder="JUR-88134" required maxlength="64" /></label>
+        <label>WebSocket server <input id="login-ws" placeholder="(empty = same origin)" /></label>
+        <button type="submit">Sign in</button>
+      </form>
+    </div>
+
+    <div id="app" class="app" hidden>
+      <header class="header">
+        <div>
+          <h1>Register tally</h1>
+          <p class="muted" id="idb-warning" hidden>⚠ This browser does not support IndexedDB: if you reload while offline, pending submissions are lost.</p>
+        </div>
+        <div class="status">
+          <span id="connection-badge" class="badge off">offline</span>
+          <span id="juror-chip" class="chip">—</span>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel">
+          <h2>New tally</h2>
+          <form id="tally-form" autocomplete="off">
+            <fieldset>
+              <legend>Table and version</legend>
+              <div class="row">
+                <label>Municipality <input id="municipality" inputmode="numeric" value="11" required /></label>
+                <label>Station <input id="station" inputmode="numeric" value="176" required /></label>
+                <label>Table <input id="table" inputmode="numeric" value="4201" required /></label>
+                <label>Corp. <input id="corp" inputmode="numeric" value="3" required /></label>
+                <label>Version <input id="version" inputmode="numeric" value="1" required /></label>
+              </div>
+              <label>Photo hash <input id="hash" placeholder="optional" /></label>
+            </fieldset>
+            <fieldset>
+              <legend>Votes</legend>
+              <div class="row">
+                <label>C1 <input id="v-C1" inputmode="numeric" value="0" required /></label>
+                <label>C2 <input id="v-C2" inputmode="numeric" value="0" required /></label>
+                <label>C3 <input id="v-C3" inputmode="numeric" value="0" required /></label>
+                <label>C4 <input id="v-C4" inputmode="numeric" value="0" required /></label>
+              </div>
+              <div class="row">
+                <label>Blank <input id="v-BLANK" inputmode="numeric" value="0" required /></label>
+                <label>Null <input id="v-NULL" inputmode="numeric" value="0" required /></label>
+                <label>Unmarked <input id="v-UNMARKED" inputmode="numeric" value="0" required /></label>
+                <label>Voters <input id="voters" inputmode="numeric" value="0" required /></label>
+              </div>
+              <p class="muted sm">Balance check: <strong id="sum">—</strong>. If it does not balance, the server marks it
+                <em>doubtful</em> (it goes to human verification, it is not rejected).</p>
+            </fieldset>
+            <button type="submit">Save and send</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <h2>Transmission history</h2>
+          <p class="muted sm">Submissions persist across reloads (IndexedDB). They are only confirmed by the server's ACK.</p>
+          <ol id="history" class="log"></ol>
+        </section>
+      </main>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

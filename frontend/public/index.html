@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live results — Quick count</title>
+    <meta name="description" content="Real-time quick count election results via Server-Sent Events." />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <h1>Live quick count</h1>
+        <p class="muted" id="updated">Connecting…</p>
+      </div>
+      <div class="status">
+        <span id="connection-badge" class="badge mid">connecting…</span>
+        <span id="instance" class="chip">—</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel filters">
+        <form id="f-form" autocomplete="off">
+          <label>Level
+            <select id="f-level">
+              <option value="dept">Department</option>
+              <option value="mun">Municipality</option>
+              <option value="station">Polling station</option>
+              <option value="table">Table</option>
+            </select>
+          </label>
+          <label id="id-wrap" style="display:none">ID <input id="f-id" placeholder="e.g. 11" /></label>
+          <button type="submit">View</button>
+          <button type="button" id="btn-reconnect" class="ghost">Reconnect</button>
+        </form>
+      </section>
+
+      <section id="summary" class="stats" aria-label="Summary"></section>
+
+      <section class="panel">
+        <h2>By candidate</h2>
+        <div id="bars"><p class="muted">Loading…</p></div>
+      </section>
+
+      <section class="panel">
+        <h2>Vote breakdown</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Option</th><th class="right">Votes</th><th class="right">% of voters</th></tr></thead>
+            <tbody id="results-tbody"></tbody>
+          </table>
+        </div>
+        <p class="muted sm">Source: <code>GET /sse/public</code> (initial snapshot + live events).
+          No reloads; reconnecting resumes from the last received id.</p>
+      </section>
+    </main>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

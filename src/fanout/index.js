@@ -1,156 +1,138 @@
-// Dueño: Persona 2. Fachada pública del fan-out. Las demás personas importan solo de aquí.
-// Las firmas suscribir(conexion, topico) y desuscribir(conexion, topico) no cambian.
-import { CANALES } from '../contratos/canales.js';
-import { snapshot } from '../dominio/index.js';
-import { registrarPublicacion } from '../metrics/dashboard.js';
-import { evaluar } from './backpressure.js';
-import { compararStreamId, crearMotor } from './engine.js';
+import { CHANNELS } from '../contracts/channels.js';
+import { snapshot } from '../domain/index.js';
+import { recordPublish } from '../metrics/dashboard.js';
+import { evaluate } from './backpressure.js';
+import { compareStreamIds, createEngine } from './engine.js';
 import {
   cleanup,
-  conexionesDe,
-  estadisticas as estadisticasTopicos,
-  subscribe,
-  unsubscribe,
+  connectionsOf,
+  stats as topicStats,
+  subscribe as addSubscription,
+  unsubscribe as removeSubscription,
 } from './topics.js';
 
-const tamanoLote = Number(process.env.FANOUT_LOTE) || 200;
-const ventanaMs = Number(process.env.FANOUT_VENTANA_MS ?? 50);
+const batchSize = Number(process.env.FANOUT_BATCH) || 200;
+const windowMs = Number(process.env.FANOUT_WINDOW_MS ?? 50);
 
-function enviarFoto(conexion, topico) {
-  const tema = topico || conexion.topico;
-  if (!tema || conexion.cerrada) return;
-  Promise.resolve(snapshot([tema]))
-    .then((foto) => {
-      if (conexion.cerrada || typeof conexion.enviar !== 'function') return;
-      if (!conexion.vistoPorTopico) conexion.vistoPorTopico = new Map();
-      const previo = conexion.vistoPorTopico.get(tema);
-      if (!previo || compararStreamId(foto.stream_id, previo) > 0) {
-        conexion.vistoPorTopico.set(tema, foto.stream_id);
+function sendSnapshot(connection, topic) {
+  const target = topic || connection.topic;
+  if (!target || connection.closed) return;
+  Promise.resolve(snapshot([target]))
+    .then((snap) => {
+      if (connection.closed || typeof connection.send !== 'function') return;
+      if (!connection.seenByTopic) connection.seenByTopic = new Map();
+      const previous = connection.seenByTopic.get(target);
+      if (!previous || compareStreamIds(snap.stream_id, previous) > 0) {
+        connection.seenByTopic.set(target, snap.stream_id);
       }
-      if (!conexion.vistoHasta || compararStreamId(foto.stream_id, conexion.vistoHasta) > 0) {
-        conexion.vistoHasta = foto.stream_id;
+      if (!connection.seenUntil || compareStreamIds(snap.stream_id, connection.seenUntil) > 0) {
+        connection.seenUntil = snap.stream_id;
       }
-      conexion.enviar('snapshot', { ...foto, motivo: 'backpressure' }, foto.stream_id);
-      registrarPublicacion({ n: 1 });
+      connection.send('snapshot', { ...snap, reason: 'backpressure' }, snap.stream_id);
+      recordPublish({ n: 1 });
     })
     .catch(() => {
-      /* sin foto no se reintenta en caliente: el próximo delta vuelve a pedirla */
-      conexion.necesitaSnapshot = true;
+      connection.needsSnapshot = true;
     });
 }
 
-const motor = crearMotor({
-  tamanoLote: Number.isFinite(tamanoLote) && tamanoLote > 0 ? tamanoLote : 200,
-  ventanaMs: Number.isFinite(ventanaMs) && ventanaMs >= 0 ? ventanaMs : 50,
-  resolverConexiones: (topico) => conexionesDe(topico),
-  evaluar: (conexion) => evaluar(conexion),
-  alEmitir: (info) => registrarPublicacion(info),
-  alDesconectar: (conexion) => {
-    cleanup(conexion);
+const engine = createEngine({
+  batchSize: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : 200,
+  windowMs: Number.isFinite(windowMs) && windowMs >= 0 ? windowMs : 50,
+  resolveConnections: (topic) => connectionsOf(topic),
+  evaluate: (connection) => evaluate(connection),
+  onEmit: (info) => recordPublish(info),
+  onDisconnect: (connection) => {
+    cleanup(connection);
     try {
-      conexion.cerrar?.('lento');
+      connection.close?.('slow');
     } catch {
-      /* el socket ya no acepta escritura */
+      return;
     }
   },
-  enviarSnapshot: (conexion, topico) => enviarFoto(conexion, topico),
+  sendSnapshot: (connection, topic) => sendSnapshot(connection, topic),
 });
 
-/** @type {import('../contratos/interfaces.js').suscribir} */
-export function suscribir(conexion, topico) {
-  subscribe(conexion, topico);
+export function subscribe(connection, topic) {
+  addSubscription(connection, topic);
 }
 
-/** @type {import('../contratos/interfaces.js').desuscribir} */
-export function desuscribir(conexion, topico) {
-  unsubscribe(conexion, topico);
+export function unsubscribe(connection, topic) {
+  removeSubscription(connection, topic);
 }
 
-/** Conexiones de un tópico (solo lectura del conjunto vivo). */
-export function suscriptores(topico) {
-  return conexionesDe(topico);
+export function subscribers(topic) {
+  return connectionsOf(topic);
 }
 
-/** Saca la conexión de todos los tópicos. */
-export function limpiarConexion(conexion) {
-  cleanup(conexion);
+export function cleanConnection(connection) {
+  cleanup(connection);
 }
 
-/** Para métricas: suscripciones, conexiones distintas y el ahorro del fan-out. */
-export function estadisticas() {
-  const temas = estadisticasTopicos();
-  const envio = motor.estadisticas();
+export function stats() {
+  const topics = topicStats();
+  const delivery = engine.stats();
   return {
-    topicos: temas.topicos,
-    suscripciones: temas.suscripciones,
-    conexiones: temas.conexiones,
-    mensajes_naivos: envio.mensajesNaivos,
-    mensajes_emitidos: envio.mensajesEmitidos,
-    eventos_ingresados: envio.eventosIngresados,
+    topics: topics.topics,
+    subscriptions: topics.subscriptions,
+    connections: topics.connections,
+    naive_messages: delivery.naiveMessages,
+    sent_messages: delivery.messagesSent,
+    events_ingested: delivery.eventsIngested,
   };
 }
 
-/** Ingresa un acta al motor (tests y cualquier emisor en proceso). */
-export function publicar(evento) {
-  motor.ingresar(evento);
+export function publish(event) {
+  engine.ingest(event);
 }
 
-/**
- * La conexión dejó de retener deltas (ya se le mandó el snapshot o el historial).
- * Entrega lo que llegó mientras tanto, filtrado por `vistoHasta`.
- */
-export function soltarRetenidos(conexion) {
-  const cola = conexion.retenido ?? [];
-  conexion.retenido = [];
-  conexion.acepta = true;
-  for (const mensaje of cola) motor.entregar(conexion, mensaje);
+export function releaseHeld(connection) {
+  const queue = connection.held ?? [];
+  connection.held = [];
+  connection.accepts = true;
+  for (const message of queue) engine.deliver(connection, message);
 }
 
-/**
- * Lo llama el latido SSE: si el buffer ya bajó, manda el snapshot pendiente;
- * si el cliente sigue saturado por encima del corte, lo desconecta.
- */
-export function revisarPresion(conexion) {
-  if (!conexion || conexion.cerrada) return;
-  const decision = evaluar(conexion);
-  if (decision.accion === 'desconectar') {
-    conexion.cerrada = true;
-    conexion.necesitaSnapshot = false;
-    cleanup(conexion);
+export function checkPressure(connection) {
+  if (!connection || connection.closed) return;
+  const decision = evaluate(connection);
+  if (decision.action === 'disconnect') {
+    connection.closed = true;
+    connection.needsSnapshot = false;
+    cleanup(connection);
     try {
-      conexion.cerrar?.('lento');
+      connection.close?.('slow');
     } catch {
-      /* ya cerrado */
+      return;
     }
     return;
   }
-  if (decision.accion === 'suspender') {
-    conexion.necesitaSnapshot = true;
+  if (decision.action === 'suspend') {
+    connection.needsSnapshot = true;
     return;
   }
-  if (decision.accion === 'snapshot') {
-    conexion.necesitaSnapshot = false;
-    enviarFoto(conexion, conexion.topico);
+  if (decision.action === 'snapshot') {
+    connection.needsSnapshot = false;
+    sendSnapshot(connection, connection.topic);
   }
 }
 
-const enlazados = new WeakSet();
+const bound = new WeakSet();
 
-/** Se suscribe al canal acta:nueva de esta instancia. Sin Redis no hace nada. */
-export async function enlazarBackplane(redisSub) {
+export async function bindBackplane(redisSub) {
   if (!redisSub || typeof redisSub.subscribe !== 'function') return false;
-  if (enlazados.has(redisSub)) return true;
-  enlazados.add(redisSub);
-  redisSub.on('message', (canal, raw) => {
-    if (canal !== CANALES.ACTA_NUEVA) return;
+  if (bound.has(redisSub)) return true;
+  bound.add(redisSub);
+  redisSub.on('message', (channel, raw) => {
+    if (channel !== CHANNELS.NEW_TALLY) return;
     try {
-      const evento = JSON.parse(raw);
-      evento._recibidoEn = Date.now();
-      motor.ingresar(evento);
+      const event = JSON.parse(raw);
+      event._receivedAt = Date.now();
+      engine.ingest(event);
     } catch {
-      /* mensaje que no es JSON del contrato: se ignora */
+      return;
     }
   });
-  await redisSub.subscribe(CANALES.ACTA_NUEVA);
+  await redisSub.subscribe(CHANNELS.NEW_TALLY);
   return true;
 }

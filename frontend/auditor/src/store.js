@@ -1,48 +1,46 @@
-// Estado central de la consola. Sin dependencias: pub/sub mínimo.
-export function crearStore() {
-  const estado = {
+export function createStore() {
+  const state = {
     auditor: null,
-    instancia: null,
-    conectada: false,
-    cola: [],
-    presentes: [],
-    // Auditores vistos en esta sesión (para contar desconectados).
-    conocidos: new Map(), // auditor -> { registro, online }
-    miCaso: null, // { acta, token }
-    resueltasSesion: 0,
+    instance: null,
+    connected: false,
+    queue: [],
+    present: [],
+    known: new Map(),
+    myCase: null,
+    resolvedThisSession: 0,
     log: [],
   };
-  const oyentes = new Set();
+  const listeners = new Set();
   return {
-    estado,
-    suscribir(fn) {
-      oyentes.add(fn);
-      return () => oyentes.delete(fn);
+    state,
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
     },
-    actualizar(parche) {
-      Object.assign(estado, parche);
-      for (const fn of oyentes) fn(estado);
+    update(patch) {
+      Object.assign(state, patch);
+      for (const fn of listeners) fn(state);
     },
-    marcarVistos(lista) {
-      const vistos = new Set(lista.map((p) => p.auditor));
-      for (const p of lista) estado.conocidos.set(p.auditor, { registro: p, online: true });
-      for (const [auditor, info] of estado.conocidos) {
-        if (!vistos.has(auditor)) info.online = false;
+    markSeen(list) {
+      const seen = new Set(list.map((p) => p.auditor));
+      for (const p of list) state.known.set(p.auditor, { record: p, online: true });
+      for (const [auditor, info] of state.known) {
+        if (!seen.has(auditor)) info.online = false;
       }
-      for (const fn of oyentes) fn(estado);
+      for (const fn of listeners) fn(state);
     },
-    marcarEventoPresencia(evento) {
-      if (!evento || !evento.auditor) return;
-      estado.conocidos.set(evento.auditor, {
-        registro: { ...evento, acta_actual: evento.acta_actual ?? null },
-        online: evento.estado !== 'offline',
+    markPresenceEvent(event) {
+      if (!event || !event.auditor) return;
+      state.known.set(event.auditor, {
+        record: { ...event, current_tally: event.current_tally ?? null },
+        online: event.status !== 'offline',
       });
-      for (const fn of oyentes) fn(estado);
+      for (const fn of listeners) fn(state);
     },
-    agregarLog(texto, clase = '') {
-      estado.log.unshift({ hora: new Date(), texto, clase });
-      estado.log = estado.log.slice(0, 80);
-      for (const fn of oyentes) fn(estado);
+    addLog(text, cssClass = '') {
+      state.log.unshift({ time: new Date(), text, cssClass });
+      state.log = state.log.slice(0, 80);
+      for (const fn of listeners) fn(state);
     },
   };
 }

@@ -1,46 +1,50 @@
-// Dueño: Persona 2. Transporte SSE de la audiencia pública (RF-5, RT-5).
-// El objeto `conexion` es opaco para el fan-out: sabe escribir un evento,
-// cuántos bytes lleva pendientes (RF-9) y cómo cerrar el socket.
 import { randomUUID } from 'node:crypto';
 
-export const CABECERAS_SSE = Object.freeze({
+export const SSE_HEADERS = Object.freeze({
   'Content-Type': 'text/event-stream',
   'Cache-Control': 'no-cache',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
-  // El frontend público puede servirse desde otro dominio (Vercel): EventSource necesita CORS.
   'Access-Control-Allow-Origin': '*',
 });
 
-/** Cuántos latidos seguidos sin `drain` se toleran antes de dar el socket por colgado. */
-const PINGS_SIN_DRENAR = 3;
+const UNDRAINED_PINGS = 3;
 
-export function escribirEvento(res, { evento, datos, id } = {}) {
-  if (!res || res.writableEnded || res.destroyed) return false;
-  let bloque = '';
-  if (id != null && id !== '') bloque += `id: ${String(id).replace(/[\r\n]/g, '')}\n`;
-  if (evento) bloque += `event: ${String(evento).replace(/[\r\n]/g, '')}\n`;
-  const cuerpo = typeof datos === 'string' ? datos : JSON.stringify(datos ?? {});
-  for (const linea of String(cuerpo).split('\n')) bloque += `data: ${linea}\n`;
-  bloque += '\n';
-  return res.write(bloque);
+function safely(fn) {
+  try {
+    fn();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function crearConexionSse(res, meta = {}) {
-  const conexion = {
+export function writeEvent(res, { event, data, id } = {}) {
+  if (!res || res.writableEnded || res.destroyed) return false;
+  let block = '';
+  if (id != null && id !== '') block += `id: ${String(id).replace(/[\r\n]/g, '')}\n`;
+  if (event) block += `event: ${String(event).replace(/[\r\n]/g, '')}\n`;
+  const body = typeof data === 'string' ? data : JSON.stringify(data ?? {});
+  for (const line of String(body).split('\n')) block += `data: ${line}\n`;
+  block += '\n';
+  return res.write(block);
+}
+
+export function createSseConnection(res, meta = {}) {
+  const connection = {
     id: meta.id ?? randomUUID(),
-    topico: meta.topico ?? null,
+    topic: meta.topic ?? null,
     res,
-    necesitaSnapshot: false,
-    acepta: true,
-    retenido: [],
-    vistoHasta: null,
-    enviar(evento, datos, id) {
-      return escribirEvento(res, { evento, datos, id });
+    needsSnapshot: false,
+    accepts: true,
+    held: [],
+    seenUntil: null,
+    send(event, data, id) {
+      return writeEvent(res, { event, data, id });
     },
-    cerrar(motivo = 'cerrada') {
+    close(reason = 'closed') {
       if (res.writableEnded || res.destroyed) return;
-      escribirEvento(res, { evento: 'cerrar', datos: { motivo } });
+      writeEvent(res, { event: 'close', data: { reason } });
       res.end();
     },
     get bufferedAmount() {
@@ -51,73 +55,57 @@ export function crearConexionSse(res, meta = {}) {
       return 0;
     },
   };
-  return conexion;
+  return connection;
 }
 
-/**
- * Comentario SSE periódico (`: ping`). Si el socket ya murió, o acumula
- * varios pings sin drenar, se destruye para no dejar fds colgados.
- * @param {import('node:http').ServerResponse} res
- * @param {number} [intervaloMs]
- * @param {{ alLatido?: () => void, alColgar?: () => void } | (() => void)} [opciones]
- * @returns {() => void} detiene el latido sin cerrar el socket
- */
-export function iniciarLatido(res, intervaloMs = 15_000, opciones = {}) {
-  const alColgar = typeof opciones === 'function' ? opciones : opciones.alColgar;
-  const alLatido = typeof opciones === 'function' ? undefined : opciones.alLatido;
-  const cada = intervaloMs ?? 15_000;
+export function startHeartbeat(res, intervalMs = 15_000, options = {}) {
+  const onHang = typeof options === 'function' ? options : options.onHang;
+  const onHeartbeat = typeof options === 'function' ? undefined : options.onHeartbeat;
+  const every = intervalMs ?? 15_000;
   let timer = null;
-  let sinDrenar = 0;
-  let detenido = false;
+  let undrained = 0;
+  let stopped = false;
 
-  const detener = () => {
-    if (detenido) return;
-    detenido = true;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
     if (timer != null) clearInterval(timer);
-    res.socket?.removeListener?.('drain', alDrenar);
+    res.socket?.removeListener?.('drain', onDrain);
   };
 
-  const colgar = () => {
-    detener();
-    try {
-      res.destroy?.();
-    } catch {
-      /* ya cerrado */
-    }
-    try {
-      alColgar?.();
-    } catch {
-      /* el cleanup del caller no puede romper el intervalo */
-    }
+  const hang = () => {
+    stop();
+    safely(() => res.destroy?.());
+    safely(() => onHang?.());
   };
 
-  function alDrenar() {
-    sinDrenar = 0;
+  function onDrain() {
+    undrained = 0;
   }
-  res.socket?.on?.('drain', alDrenar);
+  res.socket?.on?.('drain', onDrain);
 
   timer = setInterval(() => {
-    if (detenido) return;
+    if (stopped) return;
     if (res.destroyed || res.writableEnded || res.closed || res.socket?.destroyed) {
-      colgar();
+      hang();
       return;
     }
     try {
       const ok = res.write(': ping\n\n');
       if (ok === false) {
-        sinDrenar += 1;
-        if (sinDrenar >= PINGS_SIN_DRENAR) {
-          colgar();
+        undrained += 1;
+        if (undrained >= UNDRAINED_PINGS) {
+          hang();
           return;
         }
       } else {
-        sinDrenar = 0;
+        undrained = 0;
       }
-      alLatido?.();
+      onHeartbeat?.();
     } catch {
-      colgar();
+      hang();
     }
-  }, cada);
+  }, every);
   timer.unref?.();
-  return detener;
+  return stop;
 }

@@ -1,41 +1,33 @@
-# Dueños de cada carpeta. En GitHub gana la ÚLTIMA regla que coincide.
-# Reemplazar @persona1, @persona2 y @persona3 por los usuarios reales de GitHub.
-
-# Por defecto (raíz, configuración, tests de humo): los 3.
 *                                   @persona1 @persona2 @persona3
 
-# ── Persona 1 — Infra + Redis core ───────────────────────────────
 /infra/                             @persona1
 /src/server.js                      @persona1
 /src/config.js                      @persona1
 /src/redis/                         @persona1
-/src/dominio/                       @persona1
+/src/domain/                        @persona1
 /src/plugins/core/                  @persona1
-/scripts/seed-catalogo.js           @persona1
-/scripts/simular-actas.js           @persona1
+/scripts/seed-catalog.js            @persona1
+/scripts/simulate-tallies.js        @persona1
 /docs/persona1-redis.md             @persona1
 
-# ── Persona 2 — Tiempo real público + fan-out + métricas ─────────
 /src/fanout/                        @persona2
 /src/transport/                     @persona2
 /src/metrics/                       @persona2
-/src/plugins/tiempo-real/           @persona2
+/src/plugins/realtime/              @persona2
 /load-test/                         @persona2
 /docs/persona2-fanout.md            @persona2
 
-# ── Persona 3 — Verificación + presencia + WS + frontends ────────
-/src/verificacion/                  @persona3
-/src/presencia/                     @persona3
-/src/plugins/verificacion/          @persona3
+/src/verification/                  @persona3
+/src/presence/                      @persona3
+/src/plugins/verification/          @persona3
 /frontend/                          @persona3
 /docs/persona3-verificacion.md      @persona3
 
-# ── Compartido: PR aprobado por los 3 ────────────────────────────
-/src/contratos/                     @persona1 @persona2 @persona3
+/src/contracts/                     @persona1 @persona2 @persona3
 /docs/contratos.md                  @persona1 @persona2 @persona3
 /package.json                       @persona1 @persona2 @persona3
 /package-lock.json                  @persona1 @persona2 @persona3
 /.github/                           @persona1 @persona2 @persona3
 /test/                              @persona1 @persona2 @persona3
-/scripts/emisor-falso.js            @persona1 @persona2 @persona3
-/scripts/jurado-falso.js            @persona1 @persona2 @persona3
+/scripts/fake-emitter.js            @persona1 @persona2 @persona3
+/scripts/fake-juror.js              @persona1 @persona2 @persona3

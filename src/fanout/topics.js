@@ -1,104 +1,85 @@
-// Dueño: Persona 2. Índice tópico → conexiones (RF-5).
-//
-// Estructura: Map<topico, Set<conexiones>> más un índice inverso conexión → tópicos.
-// Costos:
-//   - subscribe / unsubscribe de un tópico: O(1) (Map.get + Set.add/delete).
-//   - lookup del conjunto de un tópico: O(1).
-//   - recorrer las conexiones de un tópico: O(suscriptores de ESE tópico), no del total.
-//   - cleanup de una conexión: O(k) con k = tópicos de esa conexión (cada baja es O(1)).
-// La jerarquía pública del contrato es dep | mun:{id} | pue:{id} | mesa:{id}
-// (departamento, municipio, puesto, mesa).
+const byTopic = new Map();
 
-/** @type {Map<string, Set<object>>} */
-const porTopico = new Map();
+const byConnection = new Map();
 
-/** @type {Map<object, Set<string>>} */
-const porConexion = new Map();
-
-function exigir(conexion, topico) {
-  if (!conexion || typeof conexion !== 'object') {
-    throw new Error('La conexión es obligatoria');
+function requireArgs(connection, topic) {
+  if (!connection || typeof connection !== 'object') {
+    throw new Error('The connection is required');
   }
-  if (topico == null || topico === '') {
-    throw new Error('El tópico es obligatorio');
+  if (topic == null || topic === '') {
+    throw new Error('The topic is required');
   }
 }
 
-/** Alta O(1). Repetir el par conexión+tópico no duplica la entrada. */
-export function subscribe(conexion, topico) {
-  exigir(conexion, topico);
-  let conjunto = porTopico.get(topico);
-  if (!conjunto) {
-    conjunto = new Set();
-    porTopico.set(topico, conjunto);
+export function subscribe(connection, topic) {
+  requireArgs(connection, topic);
+  let set = byTopic.get(topic);
+  if (!set) {
+    set = new Set();
+    byTopic.set(topic, set);
   }
-  conjunto.add(conexion);
+  set.add(connection);
 
-  let temas = porConexion.get(conexion);
-  if (!temas) {
-    temas = new Set();
-    porConexion.set(conexion, temas);
+  let topics = byConnection.get(connection);
+  if (!topics) {
+    topics = new Set();
+    byConnection.set(connection, topics);
   }
-  temas.add(topico);
+  topics.add(topic);
 }
 
-/** Baja O(1) de un tópico. Si era el último suscriptor, el tópico desaparece del índice. */
-export function unsubscribe(conexion, topico) {
-  if (!conexion || topico == null) return;
-  const conjunto = porTopico.get(topico);
-  if (conjunto) {
-    conjunto.delete(conexion);
-    if (conjunto.size === 0) porTopico.delete(topico);
+export function unsubscribe(connection, topic) {
+  if (!connection || topic == null) return;
+  const set = byTopic.get(topic);
+  if (set) {
+    set.delete(connection);
+    if (set.size === 0) byTopic.delete(topic);
   }
-  const temas = porConexion.get(conexion);
-  if (!temas) return;
-  temas.delete(topico);
-  if (temas.size === 0) porConexion.delete(conexion);
+  const topics = byConnection.get(connection);
+  if (!topics) return;
+  topics.delete(topic);
+  if (topics.size === 0) byConnection.delete(connection);
 }
 
-/** Saca la conexión de todos sus tópicos. O(k), k = tópicos de esa conexión. */
-export function cleanup(conexion) {
-  if (!conexion) return;
-  const temas = porConexion.get(conexion);
-  if (!temas) return;
-  for (const topico of temas) {
-    const conjunto = porTopico.get(topico);
-    if (!conjunto) continue;
-    conjunto.delete(conexion);
-    if (conjunto.size === 0) porTopico.delete(topico);
+export function cleanup(connection) {
+  if (!connection) return;
+  const topics = byConnection.get(connection);
+  if (!topics) return;
+  for (const topic of topics) {
+    const set = byTopic.get(topic);
+    if (!set) continue;
+    set.delete(connection);
+    if (set.size === 0) byTopic.delete(topic);
   }
-  porConexion.delete(conexion);
+  byConnection.delete(connection);
 }
 
-/** Conjunto vivo del tópico, o un Set vacío si nadie escucha. Lookup O(1). */
-export function conexionesDe(topico) {
-  return porTopico.get(topico) ?? new Set();
+export function connectionsOf(topic) {
+  return byTopic.get(topic) ?? new Set();
 }
 
-/** Recorre solo las conexiones de un tópico. Devuelve cuántas visitó. */
-export function recorrer(topico, visitar) {
-  const conjunto = porTopico.get(topico);
-  if (!conjunto) return 0;
+export function traverse(topic, visit) {
+  const set = byTopic.get(topic);
+  if (!set) return 0;
   let n = 0;
-  for (const conexion of conjunto) {
-    visitar(conexion);
+  for (const connection of set) {
+    visit(connection);
     n += 1;
   }
   return n;
 }
 
-export function estadisticas() {
-  let suscripciones = 0;
-  for (const conjunto of porTopico.values()) suscripciones += conjunto.size;
+export function stats() {
+  let subscriptions = 0;
+  for (const set of byTopic.values()) subscriptions += set.size;
   return {
-    topicos: porTopico.size,
-    suscripciones,
-    conexiones: porConexion.size,
+    topics: byTopic.size,
+    subscriptions,
+    connections: byConnection.size,
   };
 }
 
-/** Solo tests: deja el índice vacío. */
-export function reiniciarTopicos() {
-  porTopico.clear();
-  porConexion.clear();
+export function resetTopics() {
+  byTopic.clear();
+  byConnection.clear();
 }

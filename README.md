@@ -89,7 +89,7 @@ docker compose -f infra/docker-compose.yml exec --index 1 -e MODE=http -e URL=ht
 Salida esperada (resumen):
 
 ```text
-By instance: {"e2ae...":889,"f8de...":889, ... 8 réplicas ...}
+Per instance: {"e2ae...":889,"f8de...":889, ... 8 réplicas ...}
 Department totals CONSISTENT with expected (5950 tables reported).
 Verification queue: 450 doubtful tallies pending.
 ```
