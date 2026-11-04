@@ -1,0 +1,11 @@
+{
+  "name": "app-jurados",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "App offline-first de jurados (Persona 3, RT-6). Vanilla ESM sin build.",
+  "scripts": {
+    "dev": "npx --yes serve . -l 5175",
+    "test": "node --test src/offlineQueue.test.js"
+  }
+}
