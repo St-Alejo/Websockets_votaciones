@@ -6,7 +6,18 @@ name: preconteo
 services:
   redis:
     image: redis:7-alpine
-    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    # AOF everysec: pierde como máximo ~1 s ante un corte. hash-max-listpack-value 128: los
+    # HASH acta:* (con el JSON de votos) siguen en listpack compacto (−34 % de memoria medido).
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--hash-max-listpack-value',
+        '128',
+      ]
     volumes:
       - redis-data:/data
     healthcheck:
