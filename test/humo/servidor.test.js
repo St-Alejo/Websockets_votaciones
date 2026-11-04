@@ -61,12 +61,10 @@ describe('servidor', () => {
     expect(r.json()).toMatchObject({ estado: 'rechazada', recibo: null });
   });
 
-  it('GET /acumulado y /ranking devuelven datos coherentes', async () => {
-    const acum = (await app.inject('/acumulado/mun/11')).json();
-    expect(acum.porcentaje_informado).toBeGreaterThan(0);
-    const rank = (await app.inject('/ranking/dep?top=2')).json();
-    expect(rank).toHaveLength(2);
-    expect(rank[0].votos).toBeGreaterThanOrEqual(rank[1].votos);
+  // Los datos reales de /acumulado y /ranking se prueban con Redis en src/plugins/core/actas.test.js.
+  it('GET /acumulado y /ranking validan el nivel antes de tocar Redis', async () => {
+    expect((await app.inject('/acumulado/pais/1')).statusCode).toBe(400);
+    expect((await app.inject('/ranking/mun')).statusCode).toBe(400);
   });
 });
 
