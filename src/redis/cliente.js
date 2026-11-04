@@ -43,8 +43,8 @@ export function registrarClientes(nuevos) {
   globalThis[REGISTRO] = nuevos;
 }
 
-export const obtenerRedis = () => globalThis[REGISTRO].redis;
-export const obtenerRedisSub = () => globalThis[REGISTRO].redisSub;
+export const obtenerRedis = () => globalThis[REGISTRO]?.redis;
+export const obtenerRedisSub = () => globalThis[REGISTRO]?.redisSub;
 
 /** Espera a que el cliente esté listo (útil en scripts y tests; con cola offline apagada). */
 export function esperarListo(redis, timeoutMs = 5000) {
