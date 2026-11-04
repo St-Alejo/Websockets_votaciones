@@ -10,6 +10,7 @@ const leer = (nombre) => readFileSync(new URL(`./scripts/${nombre}.lua`, import.
 export const SCRIPTS = Object.freeze({
   registrarActaLua: { archivo: 'registrar', numberOfKeys: 12 },
   snapshotLua: { archivo: 'snapshot' },
+  limiteTasaLua: { archivo: 'limite-tasa', numberOfKeys: 1 },
 });
 
 const fuentes = Object.fromEntries(

@@ -108,18 +108,18 @@ describe.skipIf(!(await hayRedis()))('registro de actas (Redis real)', () => {
   it('publica un EventoActaNueva válido en acta:nueva', async () => {
     const sub = new Redis(urlConDb(DB));
     await sub.subscribe(CANALES.ACTA_NUEVA);
+    // Pub/Sub es global al servidor (no por base): otros tests en paralelo también publican.
+    // Se espera el evento de ESTA acta.
+    const ID = 'E14-990-9901-03';
     const llegada = new Promise((resolve) =>
-      sub.once('message', (_c, m) => resolve(JSON.parse(m))),
+      sub.on('message', (_c, m) => {
+        const e = JSON.parse(m);
+        if (e.acta === ID) resolve(e);
+      }),
     );
-    await registrar(redis, acta({ votos: { C1: 1 } }));
+    await registrar(redis, acta({ id: ID, mesa: 9901, puesto: 990, votos: { C1: 1 } }));
     const evento = EventoActaNueva.parse(await llegada);
-    expect(evento).toMatchObject({
-      acta: 'E14-001-0001-03',
-      mun: 1,
-      pue: 1,
-      version: 1,
-      tipo: 'nueva',
-    });
+    expect(evento).toMatchObject({ acta: ID, mun: 1, pue: 990, version: 1, tipo: 'nueva' });
     await sub.quit();
   });
 

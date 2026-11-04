@@ -6,31 +6,38 @@ import { obtenerRedis } from '../redis/cliente.js';
 import { aplicarVerificada, registrar } from '../redis/actas.js';
 import { leerRanking, leerSnapshot } from '../redis/acumulados.js';
 import { leerDesde } from '../redis/historial.js';
+import { consumir } from '../redis/rateLimit.js';
 
 export { ErrorLimiteTasa, ErrorRedisNoDisponible } from './errores.js';
 
-let configDominio = null;
+// En globalThis por la misma razón que los clientes (ver src/redis/cliente.js).
+const CONFIG = Symbol.for('preconteo.dominio.config');
 
 /** Lo llama server.js al arrancar: instancia, límite de tasa y retención del stream. */
 export function configurarDominio(config) {
-  configDominio = config;
+  globalThis[CONFIG] = config;
 }
 
-export const configActual = () => configDominio;
+export const configActual = () => globalThis[CONFIG] ?? null;
 
 /** @type {import('../contratos/interfaces.js').registrarActa} */
 export async function registrarActa(acta) {
-  const c = configDominio ?? {};
-  return registrar(obtenerRedis(), acta, {
+  const c = configActual() ?? {};
+  const redis = obtenerRedis();
+  return registrar(redis, acta, {
     instancia: c.instanceId,
     streamMaxlen: c.streamMaxlen,
+    // El límite se cuenta por credencial de jurado, después de validar el JSON.
+    antesDeRegistrar: c.rlMax
+      ? (valida) => consumir(redis, valida.jurado, { max: c.rlMax, ventanaMs: c.rlVentanaMs })
+      : undefined,
   });
 }
 
 /** @type {import('../contratos/interfaces.js').aplicarActaVerificada} */
 export async function aplicarActaVerificada(acta, version) {
   return aplicarVerificada(obtenerRedis(), acta, version, {
-    streamMaxlen: configDominio?.streamMaxlen,
+    streamMaxlen: configActual()?.streamMaxlen,
   });
 }
 

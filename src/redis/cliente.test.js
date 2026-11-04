@@ -24,6 +24,11 @@ describe('cliente Redis sin servidor', () => {
     expect(await redisResponde(redis)).toBe(false);
   });
 
+  it('un bug de programación (TypeError) no se disfraza de 503', () => {
+    const bug = new TypeError("Cannot read properties of null (reading 'x')");
+    expect(traducirErrorRedis(bug)).toBe(bug);
+  });
+
   it('el backoff está acotado a 2 s', () => {
     for (let i = 1; i < 50; i++) expect(estrategiaReintento(i)).toBeLessThanOrEqual(2000);
   });

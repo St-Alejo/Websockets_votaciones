@@ -32,7 +32,19 @@ const REPLY_DE_INDISPONIBILIDAD = /^(LOADING|BUSY|OOM|READONLY|MASTERDOWN|CLUSTE
  * ReplyError (p. ej. un bug en un script Lua) se devuelve tal cual: es un 500, no un 503.
  */
 export function traducirErrorRedis(err) {
-  if (err instanceof ErrorRedisNoDisponible || err instanceof ErrorLimiteTasa) return err;
+  if (esErrorDeDominio(err)) return err;
+  // Bugs de programación (cliente null, argumento mal formado): 500, nunca un 503 engañoso.
+  if (err instanceof TypeError || err instanceof RangeError || err instanceof SyntaxError) {
+    return err;
+  }
   if (err instanceof ReplyError && !REPLY_DE_INDISPONIBILIDAD.test(err.message)) return err;
   return new ErrorRedisNoDisponible(err);
+}
+
+/**
+ * Reconoce los errores por `codigo` y no con instanceof: así funciona aunque el módulo se haya
+ * cargado dos veces (autoload + vitest) y la clase no sea la misma referencia.
+ */
+export function esErrorDeDominio(err) {
+  return err?.codigo === 'redis_no_disponible' || err?.codigo === 'limite_tasa';
 }

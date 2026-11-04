@@ -9,7 +9,11 @@
 import { Redis } from 'ioredis';
 import { definirComandos } from './scripts.js';
 
-let clientes = { redis: null, redisSub: null };
+// Registro en globalThis (no en una variable de módulo): si este archivo llega a cargarse dos
+// veces (p. ej. autoload importa los plugins con import() nativo mientras vitest transforma
+// server.js), ambas copias ven los mismos clientes.
+const REGISTRO = Symbol.for('preconteo.redis.clientes');
+globalThis[REGISTRO] ??= { redis: null, redisSub: null };
 
 /** Reintento con backoff exponencial acotado y jitter para no sincronizar las 8 instancias. */
 export function estrategiaReintento(intento) {
@@ -36,11 +40,11 @@ export function crearClientesRedis(url, opciones = {}) {
 
 /** Lo llama server.js al arrancar. Los módulos que no reciben `app` usan obtenerRedis(). */
 export function registrarClientes(nuevos) {
-  clientes = nuevos;
+  globalThis[REGISTRO] = nuevos;
 }
 
-export const obtenerRedis = () => clientes.redis;
-export const obtenerRedisSub = () => clientes.redisSub;
+export const obtenerRedis = () => globalThis[REGISTRO].redis;
+export const obtenerRedisSub = () => globalThis[REGISTRO].redisSub;
 
 /** Espera a que el cliente esté listo (útil en scripts y tests; con cola offline apagada). */
 export function esperarListo(redis, timeoutMs = 5000) {
