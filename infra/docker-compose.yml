@@ -67,6 +67,7 @@ services:
       - '${NGINX_PORT:-8080}:80'
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../frontend:/usr/share/nginx/frontend:ro
     depends_on:
       app:
         condition: service_healthy
