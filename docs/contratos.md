@@ -29,6 +29,37 @@ en un solo lugar y un `grep` encuentra todos los usos.
 
 `NIVELES = ['dep', 'mun', 'pue', 'mesa']`. Para `dep` el id se omite.
 
+### 1.1 Campos internos de las estructuras de Persona 1
+
+Solo Persona 1 escribe estas claves (con scripts Lua). Las demás personas **leen a través de
+las funciones de `src/dominio/index.js`**, no directamente; el detalle está aquí para depurar
+con `redis-cli`.
+
+- **`acta:{id}`** (HASH): `version_aplicada` (0 si ninguna versión válida se aplicó aún),
+  `votos` (JSON de la versión aplicada), `sufragantes`, `estado` (`aplicada` | `dudosa`),
+  `jurado`, `recibo`, `ts` (ms), `mesa`, `pue`, `mun` y, si hay una versión dudosa pendiente
+  mayor que la aplicada, `version_dudosa`.
+- **`acta:{id}:versiones`** (HASH), por cada versión recibida `v`:
+  `{v}` → hash del contenido (detecta "misma versión, contenido distinto"),
+  `{v}:r` → JSON de la respuesta original (para responder igual a un reenvío aunque `idem:{k}`
+  haya expirado) y, solo en las dudosas, `{v}:datos` → JSON con votos y sufragantes, que usa
+  `aplicarActaVerificada`.
+- **`idem:{k}`** (STRING, TTL 24 h): `{"r": RespuestaRegistro, "h": hash}`.
+- **`acum:{nivel}`** (HASH): un campo por voto (`C1..Cn`, `BLANCO`, `NULO`, `NO_MARCADO`),
+  `sufragantes` e `informadas` (mesas con una versión válida aplicada; se incrementa solo la
+  primera vez que la mesa aplica).
+- **`rank:dep`, `rank:mun:{id}`, `rank:pue:{id}`** (ZSET): solo candidatos `C*` → votos. No
+  existe `rank:mesa:*`; el ranking de una mesa se calcula desde `acum:mesa:{id}`.
+- **`cat:dep:mesas`, `cat:mun:{id}:mesas`, `cat:pue:{id}:mesas`** (STRING): total de mesas del
+  nivel según el catálogo (`scripts/seed-catalogo.js`). Para una mesa el total es 1.
+- **`cola:verificacion`** (ZSET): miembro = id del acta, score = prioridad =
+  `|suma de votos − sufragantes|` (más descuadre, más prioridad: `ZPOPMAX`/`ZREVRANGE`).
+  Persona 1 **solo inserta** (y retira el acta si llega una versión válida que la supera);
+  Persona 3 la consume. La versión a verificar está en `acta:{id}` → `version_dudosa`.
+- **`stream:actas`**: `XADD ... MAXLEN ~ STREAM_MAXLEN` (10.000 por defecto: cabe la jornada
+  completa, ~6.600 entradas).
+- **`rl:{jurado}:{ventana}`** (STRING con TTL): `ventana = floor(ahora_ms / RL_VENTANA_MS)`.
+
 ## 2. Canales Pub/Sub — `src/contratos/canales.js`
 
 | Constante              | Canal          | Mensaje (JSON)       | Publica | Escucha |
@@ -59,7 +90,16 @@ XADD stream:actas MAXLEN ~ N * evento '{"acta":"E14-176-0042-03","mun":11,"pue":
   (`C1..Cn`, `BLANCO`, `NULO`, `NO_MARCADO`, enteros ≥ 0), `sufragantes`, `hash_foto`, `idem`.
 - **`RespuestaRegistro`**: `{ estado, acta, version, recibo, version_vigente?, motivo? }` con
   `estado ∈ registrada | duplicada | version_obsoleta | conflicto | dudosa | rechazada`.
-  `recibo` es `null` solo cuando `estado = rechazada`.
+  `recibo` es `null` cuando `estado = rechazada` o `conflicto` (no se registró nada).
+  `version_vigente` es la versión aplicada en ese momento (se omite si no hay ninguna).
+  Semántica de cada estado:
+  - `registrada`: versión nueva y válida, ya sumada al acumulado.
+  - `duplicada`: reenvío de algo ya recibido; trae el **recibo original** y en `motivo` el
+    estado original. No suma nada.
+  - `version_obsoleta`: llegó una versión menor que la aplicada; queda registrada pero no cambia nada.
+  - `conflicto`: misma versión con contenido distinto (o `idem` reutilizado para otra acta). No cambia nada.
+  - `dudosa`: no cumple la regla contable; registrada y en la cola de verificación, **no suma**.
+  - `rechazada`: el JSON no cumple `ActaEntrante`.
 - **`EventoActaNueva`**: `{ stream_id, acta, mun, pue, version, tipo: nueva | correccion }`.
 - **`EventoVerificacion`**: `{ tipo: encolada | asignada | liberada | resuelta, acta, auditor? }`.
 - **`EventoPresencia`**: `{ auditor, estado: online | offline, instancia, acta_actual?, desde? }`
@@ -84,38 +124,66 @@ Las firmas están en JSDoc. `FIRMAS` lista módulo → función → número de p
 `test/humo/contratos.test.js` lo verifica (por eso **no** se usan valores por defecto en estas
 firmas: alteran `Function.length`).
 
-| Persona | Importar de                 | Función                                | Devuelve                                                                           |
-| ------- | --------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
-| P1      | `src/dominio/index.js`      | `registrarActa(acta)`                  | `Promise<RespuestaRegistro>` (nunca lanza por datos inválidos)                     |
-| P1      | `src/dominio/index.js`      | `aplicarActaVerificada(acta, version)` | `Promise<{ aplicada, stream_id? }>`                                                |
-| P1      | `src/dominio/index.js`      | `leerAcumulado(nivel, id)`             | `Promise<Acumulado>`                                                               |
-| P1      | `src/dominio/index.js`      | `ranking(nivel, id, topN)`             | `Promise<FilaRanking[]>`                                                           |
-| P1      | `src/dominio/index.js`      | `snapshot(niveles[])`                  | `Promise<Snapshot>`                                                                |
-| P1      | `src/dominio/index.js`      | `leerHistorialDesde(streamId, max)`    | `Promise<{ eventos, stream_id, recortado? }>` — `recortado: true` ⇒ pedir snapshot |
-| P2      | `src/fanout/index.js`       | `suscribir(conexion, topico)`          | `void` (síncrona)                                                                  |
-| P2      | `src/fanout/index.js`       | `desuscribir(conexion, topico)`        | `void` (síncrona)                                                                  |
-| P3      | `src/verificacion/index.js` | `tomarCaso(auditor)`                   | `Promise<{ acta, token, ttl_ms } \| null>`                                         |
-| P3      | `src/verificacion/index.js` | `liberarCaso(auditor, acta, token)`    | `Promise<boolean>` — `false` si el token ya no es el dueño                         |
-| P3      | `src/presencia/index.js`    | `presentes()`                          | `Promise<EventoPresencia[]>`                                                       |
+| Persona | Importar de                 | Función                                | Devuelve                                                                                                                                          |
+| ------- | --------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1      | `src/dominio/index.js`      | `registrarActa(acta)`                  | `Promise<RespuestaRegistro>` (nunca lanza por datos inválidos)                                                                                    |
+| P1      | `src/dominio/index.js`      | `aplicarActaVerificada(acta, version)` | `Promise<{ aplicada, stream_id? }>`                                                                                                               |
+| P1      | `src/dominio/index.js`      | `leerAcumulado(nivel, id)`             | `Promise<Acumulado>`                                                                                                                              |
+| P1      | `src/dominio/index.js`      | `ranking(nivel, id, topN)`             | `Promise<FilaRanking[]>`                                                                                                                          |
+| P1      | `src/dominio/index.js`      | `snapshot(niveles[])`                  | `Promise<Snapshot>`                                                                                                                               |
+| P1      | `src/dominio/index.js`      | `leerHistorialDesde(streamId, max)`    | `Promise<{ eventos, stream_id, recortado?, hay_mas? }>` — `recortado: true` ⇒ pedir snapshot; `hay_mas: true` ⇒ volver a llamar desde `stream_id` |
+| P2      | `src/fanout/index.js`       | `suscribir(conexion, topico)`          | `void` (síncrona)                                                                                                                                 |
+| P2      | `src/fanout/index.js`       | `desuscribir(conexion, topico)`        | `void` (síncrona)                                                                                                                                 |
+| P3      | `src/verificacion/index.js` | `tomarCaso(auditor)`                   | `Promise<{ acta, token, ttl_ms } \| null>`                                                                                                        |
+| P3      | `src/verificacion/index.js` | `liberarCaso(auditor, acta, token)`    | `Promise<boolean>` — `false` si el token ya no es el dueño                                                                                        |
+| P3      | `src/presencia/index.js`    | `presentes()`                          | `Promise<EventoPresencia[]>`                                                                                                                      |
 
 Los clientes Redis se obtienen con `app.redis` / `app.redisSub` dentro de un plugin, o con
 `obtenerRedis()` / `obtenerRedisSub()` de `src/redis/cliente.js` desde un módulo de dominio.
+
+### 4.1 Errores que lanzan las funciones de Persona 1 (capturarlos)
+
+Las funciones de `src/dominio/index.js` **no** devuelven un estado cuando falla la
+infraestructura: lanzan un error tipado, exportado desde el mismo módulo.
+
+| Error                    | Cuándo                                                                            | Qué hacer                                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `ErrorRedisNoDisponible` | Redis caído, colgado (> `REDIS_COMMAND_TIMEOUT_MS`, 1 s) o sin memoria            | HTTP 503 / mensaje WS `{ tipo: 'error', motivo: 'no_registrada', reintentar: true }`. El reintento con el **mismo `idem`** es seguro. |
+| `ErrorLimiteTasa`        | El jurado superó `RL_MAX` envíos (20) en la ventana (60 s). Tiene `reintentarEnS` | HTTP 429 con `Retry-After` / mensaje WS equivalente.                                                                                  |
+
+```js
+import { registrarActa, ErrorRedisNoDisponible, ErrorLimiteTasa } from '../../dominio/index.js';
+try {
+  enviar({ tipo: 'respuesta', respuesta: await registrarActa(msg.acta) });
+} catch (err) {
+  if (err instanceof ErrorRedisNoDisponible)
+    enviar({ tipo: 'error', motivo: 'no_registrada', reintentar: true });
+  else if (err instanceof ErrorLimiteTasa)
+    enviar({ tipo: 'error', motivo: 'limite_tasa', reintentar_en_s: err.reintentarEnS });
+  else throw err;
+}
+```
+
+`snapshot`, `leerAcumulado`, `ranking` y `leerHistorialDesde` también lanzan
+`ErrorRedisNoDisponible`. `aplicarActaVerificada(acta, version)` acepta el `ActaEntrante` **o**
+solo el id del acta (string): aplica el contenido guardado de esa versión dudosa, si es mayor que
+la aplicada, y la retira de `cola:verificacion`.
 
 ## 5. Endpoints
 
 Todas las respuestas llevan el header **`X-Instance-Id`** (instancia que atendió).
 
-| Método y ruta                                  | Dueño | Descripción                                                                                                                                                                                       |
-| ---------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /actas`                                  | P1    | Cuerpo `ActaEntrante` → `RespuestaRegistro`. HTTP: `registrada` 201, `duplicada` 200, `version_obsoleta` 200, `dudosa` 202, `conflicto` 409, `rechazada` 400. Exceso de tasa: 429 (pendiente P1). |
-| `GET /acumulado/:nivel/:id`                    | P1    | `Acumulado`. Para el departamento: `GET /acumulado/dep`.                                                                                                                                          |
-| `GET /ranking/:nivel/:id?top=10`               | P1    | `FilaRanking[]` (máx. 100).                                                                                                                                                                       |
-| `GET /instancia`                               | P1    | `{ instancia, pid, uptime_s }`.                                                                                                                                                                   |
-| `GET /salud`                                   | P1    | 200 `{ estado: 'ok', redis: 'ok' }` o 503 `{ estado: 'degradado', redis: 'sin_respuesta' }`.                                                                                                      |
-| `GET /sse/publico?topico=mun:11&ultimo_id=...` | P2    | SSE. Primer evento `snapshot` con `id: <stream_id>`. `ultimo_id` (o el header `Last-Event-ID`) permite reanudar (RF-6).                                                                           |
-| `GET /metrics`                                 | P2    | Formato Prometheus, por instancia.                                                                                                                                                                |
-| `WS /ws/jurado`                                | P3    | Ver protocolo abajo.                                                                                                                                                                              |
-| `WS /ws/auditor?auditor=AUD-7`                 | P3    | Ver protocolo abajo.                                                                                                                                                                              |
+| Método y ruta                                  | Dueño | Descripción                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /actas`                                  | P1    | Cuerpo `ActaEntrante` → `RespuestaRegistro`. HTTP: `registrada` 201, `duplicada` 200, `version_obsoleta` 200, `dudosa` 202, `conflicto` 409, `rechazada` 400. Exceso de tasa: 429 + `Retry-After` + `{ error: 'limite_tasa', reintentar_en_s }`. Redis no disponible: 503 + `{ estado: 'no_registrada', reintentar: true, motivo }`, en ≤ ~1 s. |
+| `GET /acumulado/:nivel/:id`                    | P1    | `Acumulado`. Para el departamento: `GET /acumulado/dep`.                                                                                                                                                                                                                                                                                        |
+| `GET /ranking/:nivel/:id?top=10`               | P1    | `FilaRanking[]` (máx. 100).                                                                                                                                                                                                                                                                                                                     |
+| `GET /instancia`                               | P1    | `{ instancia, pid, uptime_s }`.                                                                                                                                                                                                                                                                                                                 |
+| `GET /salud`                                   | P1    | 200 `{ estado: 'ok', redis: 'ok' }` o 503 `{ estado: 'degradado', redis: 'sin_respuesta' }`.                                                                                                                                                                                                                                                    |
+| `GET /sse/publico?topico=mun:11&ultimo_id=...` | P2    | SSE. Primer evento `snapshot` con `id: <stream_id>`. `ultimo_id` (o el header `Last-Event-ID`) permite reanudar (RF-6).                                                                                                                                                                                                                         |
+| `GET /metrics`                                 | P2    | Formato Prometheus, por instancia.                                                                                                                                                                                                                                                                                                              |
+| `WS /ws/jurado`                                | P3    | Ver protocolo abajo.                                                                                                                                                                                                                                                                                                                            |
+| `WS /ws/auditor?auditor=AUD-7`                 | P3    | Ver protocolo abajo.                                                                                                                                                                                                                                                                                                                            |
 
 ### Protocolo WS inicial (P3 puede refinarlo por PR)
 
