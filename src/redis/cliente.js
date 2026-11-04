@@ -23,7 +23,8 @@ export function estrategiaReintento(intento) {
 
 export function crearClientesRedis(url, opciones = {}) {
   const { commandTimeoutMs = 1000, ...resto } = opciones;
-  const comun = { retryStrategy: estrategiaReintento, connectTimeout: 2000, ...resto };
+  // family 0: resuelve IPv4 e IPv6 (la red privada de Railway, *.railway.internal, es IPv6).
+  const comun = { retryStrategy: estrategiaReintento, connectTimeout: 2000, family: 0, ...resto };
 
   const redis = new Redis(url, {
     ...comun,

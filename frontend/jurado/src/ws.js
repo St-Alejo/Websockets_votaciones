@@ -1,5 +1,6 @@
 // Cliente WS del jurado: stop-and-wait (un acta en vuelo) para correlación
 // exacta respuesta→envío, más reconexión con backoff + jitter.
+import { API_WS } from '../../config.js';
 export function crearClienteJurado({ onEstado, onRespuestaInesperada } = {}) {
   let socket = null;
   let manual = false;
@@ -114,6 +115,5 @@ export function crearClienteJurado({ onEstado, onRespuestaInesperada } = {}) {
 }
 
 export function urlPorDefecto(jurado) {
-  const protocolo = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocolo}//${location.host}/ws/jurado${jurado ? `?jurado=${encodeURIComponent(jurado)}` : ''}`;
+  return `${API_WS}/ws/jurado${jurado ? `?jurado=${encodeURIComponent(jurado)}` : ''}`;
 }
