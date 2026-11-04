@@ -48,7 +48,10 @@ function parsear(crudo) {
       auditor: o.auditor,
       estado: o.estado === 'offline' ? 'offline' : 'online',
       instancia: typeof o.instancia === 'string' ? o.instancia : 'desconocida',
-      acta_actual: typeof o.acta_actual === 'string' || o.acta_actual === null ? (o.acta_actual ?? null) : null,
+      acta_actual:
+        typeof o.acta_actual === 'string' || o.acta_actual === null
+          ? (o.acta_actual ?? null)
+          : null,
       desde: Number(o.desde) || ahora(),
       latido: Number(o.latido) || Number(o.desde) || ahora(),
     };
@@ -90,7 +93,12 @@ async function listarClaves(redis) {
  */
 export async function registrar(auditor, opciones = {}, redisExplicito) {
   validarAuditor(auditor);
-  const { instancia = 'desconocida', estado = 'online', acta_actual = null, ttlS = TTL_S_PRESENCIA } = opciones;
+  const {
+    instancia = 'desconocida',
+    estado = 'online',
+    acta_actual = null,
+    ttlS = TTL_S_PRESENCIA,
+  } = opciones;
   const redis = cliente(redisExplicito ?? opciones.redis);
   const ttl = Number(ttlS) || TTL_S_PRESENCIA;
   try {
@@ -105,7 +113,13 @@ export async function registrar(auditor, opciones = {}, redisExplicito) {
     };
     await redis.set(clavePresencia(auditor), JSON.stringify(registro), 'EX', ttl);
     if (!previo || previo.estado === 'offline') {
-      await publicar(redis, { auditor, estado: 'online', instancia, acta_actual: registro.acta_actual, desde: registro.desde });
+      await publicar(redis, {
+        auditor,
+        estado: 'online',
+        instancia,
+        acta_actual: registro.acta_actual,
+        desde: registro.desde,
+      });
     }
     return registro;
   } catch (err) {
@@ -145,14 +159,21 @@ export async function activos(redisExplicito) {
 /** Actualiza el estado (online/offline) preservando lo demás. */
 export async function actualizarEstado(auditor, estado, redisExplicito) {
   validarAuditor(auditor);
-  if (estado !== 'online' && estado !== 'offline') throw new Error('estado debe ser online|offline');
+  if (estado !== 'online' && estado !== 'offline')
+    throw new Error('estado debe ser online|offline');
   const redis = cliente(redisExplicito);
   try {
     const previo = await leerRegistro(redis, auditor);
     if (!previo) return null;
     const registro = { ...previo, estado, latido: ahora() };
     await redis.set(clavePresencia(auditor), JSON.stringify(registro), 'EX', TTL_S_PRESENCIA);
-    await publicar(redis, { auditor, estado, instancia: registro.instancia, acta_actual: registro.acta_actual, desde: registro.desde });
+    await publicar(redis, {
+      auditor,
+      estado,
+      instancia: registro.instancia,
+      acta_actual: registro.acta_actual,
+      desde: registro.desde,
+    });
     return registro;
   } catch (err) {
     throw new Error(`actualizarEstado(${auditor}) falló: ${err.message}`, { cause: err });
@@ -189,7 +210,12 @@ export async function salir(auditor, redisExplicito) {
       await redis.unlink(clavePresencia(auditor));
     }
     if (previo) {
-      await publicar(redis, { auditor, estado: 'offline', instancia: previo.instancia, desde: previo.desde });
+      await publicar(redis, {
+        auditor,
+        estado: 'offline',
+        instancia: previo.instancia,
+        desde: previo.desde,
+      });
       return true;
     }
     return false;
@@ -221,7 +247,12 @@ export async function purgarExpirados(umbralMs = UMBRAL_FANTASMA_MS, redisExplic
   for (const f of fantasmas) {
     try {
       if (typeof redis.del === 'function') await redis.del(clavePresencia(f.auditor));
-      await publicar(redis, { auditor: f.auditor, estado: 'offline', instancia: f.instancia, desde: f.desde });
+      await publicar(redis, {
+        auditor: f.auditor,
+        estado: 'offline',
+        instancia: f.instancia,
+        desde: f.desde,
+      });
     } catch {
       /* sigue con el siguiente */
     }

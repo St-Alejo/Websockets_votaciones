@@ -57,4 +57,9 @@ export async function presentes() {
   return [...conectados.values()];
 }
 
-export { actualizarActaTracker as actualizarActa, actualizarEstadoTracker as actualizarEstado, detectarFantasmas, purgarExpirados };
+export {
+  actualizarActaTracker as actualizarActa,
+  actualizarEstadoTracker as actualizarEstado,
+  detectarFantasmas,
+  purgarExpirados,
+};
