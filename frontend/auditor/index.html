@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Consola de auditoría — Preconteo</title>
+    <meta
+      name="description"
+      content="Consola colaborativa de auditores: cola de verificación en vivo y presencia del equipo."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="login" class="login">
+      <form id="login-form" class="login-card" autocomplete="off">
+        <h1>Consola de auditoría</h1>
+        <p class="muted">Identifícate para ver la cola de verificación en vivo.</p>
+        <label>
+          ID de auditor
+          <input id="login-auditor" name="auditor" placeholder="AUD-7" required maxlength="64" />
+        </label>
+        <label>
+          Servidor WebSocket
+          <input id="login-ws" name="ws" placeholder="(vacío = mismo origen)" />
+        </label>
+        <button type="submit">Conectar</button>
+        <p class="hint">La identidad sale de este formulario; el servidor la valida con formato
+          <code>A-Z 0-9 _ -</code> y ata cada caso a tu bloqueo con token.</p>
+      </form>
+    </div>
+
+    <div id="app" class="app" hidden>
+      <aside class="sidebar">
+        <div class="brand">Preconteo <span>Auditoría</span></div>
+        <nav>
+          <a href="#cola" class="active">Cola de verificación</a>
+          <a href="#presencia">Presencia del equipo</a>
+          <a href="#actividad">Actividad reciente</a>
+        </nav>
+        <section class="mi-caso" aria-live="polite">
+          <h2>Mi caso</h2>
+          <div id="mi-caso">Sin caso asignado.</div>
+        </section>
+        <button id="btn-salir" class="ghost" type="button">Desconectar</button>
+      </aside>
+
+      <div class="main">
+        <header class="header">
+          <div>
+            <h1>Verificación de actas</h1>
+            <p class="muted" id="subtitulo">—</p>
+          </div>
+          <div class="estado">
+            <span id="badge-conexion" class="badge off">desconectado</span>
+            <span id="chip-auditor" class="chip">—</span>
+          </div>
+        </header>
+
+        <section class="stats" aria-label="Resumen">
+          <article class="card"><span class="num" id="st-pend">0</span><span class="lbl">Pendientes</span></article>
+          <article class="card"><span class="num" id="st-asig">0</span><span class="lbl">Asignadas</span></article>
+          <article class="card"><span class="num" id="st-res">0</span><span class="lbl">Resueltas (sesión)</span></article>
+          <article class="card"><span class="num" id="st-on">0</span><span class="lbl">Auditores en línea</span></article>
+          <article class="card"><span class="num" id="st-off">0</span><span class="lbl">Desconectados (vistos)</span></article>
+        </section>
+
+        <section id="cola" class="panel">
+          <div class="panel-head">
+            <h2>Cola de verificación</h2>
+            <div class="filtros">
+              <input id="f-texto" type="search" placeholder="Filtrar por acta…" aria-label="Filtrar por acta" />
+              <select id="f-estado" aria-label="Filtrar por estado">
+                <option value="todas">Todas</option>
+                <option value="libre">Disponibles</option>
+                <option value="asignada">Asignadas</option>
+                <option value="mia">Las mías</option>
+              </select>
+              <input id="f-prio" type="number" min="0" placeholder="Prioridad mín." aria-label="Prioridad mínima" />
+              <button id="btn-refrescar" type="button">Refrescar</button>
+            </div>
+          </div>
+          <p class="muted sm">Fuente de verdad: Redis vía WebSocket. Esta consola nunca asigna por su cuenta;
+            el servidor confirma cada caso con bloqueo distribuido.</p>
+          <div class="tabla-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Acta</th><th>Puesto</th><th>Mesa</th><th title="Mayor = más urgente">Prioridad</th>
+                  <th>Estado</th><th>Responsable</th><th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-cola">
+                <tr><td colspan="7" class="muted">Conectando…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="presencia" class="panel">
+          <div class="panel-head">
+            <h2>Presencia del equipo</h2>
+            <button id="btn-presencia" type="button">Refrescar</button>
+          </div>
+          <div class="tabla-wrap">
+            <table>
+              <thead>
+                <tr><th>Auditor</th><th>Estado</th><th>Acta actual</th><th>Instancia</th><th>Último latido</th></tr>
+              </thead>
+              <tbody id="tbody-presencia">
+                <tr><td colspan="5" class="muted">Conectando…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="actividad" class="panel">
+          <h2>Actividad reciente</h2>
+          <ol id="log" class="log" aria-live="polite"></ol>
+        </section>
+      </div>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
