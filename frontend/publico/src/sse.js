@@ -2,6 +2,7 @@
 // nunca WebSocket). Usa EventSource nativo: reconexión automática con
 // Last-Event-ID (el servidor envía `id:` con cada evento) y `ultimo_id`
 // para reanudar (RF-6). Se ignoran eventos duplicados por id.
+import { API_HTTP } from '../../config.js';
 export function crearClienteSSE({ onEstado, onSnapshot, onEvento }) {
   let es = null;
   let ultimoId = null;
@@ -60,5 +61,5 @@ export function crearClienteSSE({ onEstado, onSnapshot, onEvento }) {
 export function urlPorDefecto(topico, ultimoId) {
   const q = new URLSearchParams({ topico });
   if (ultimoId) q.set('ultimo_id', ultimoId);
-  return `${location.origin}/sse/publico?${q.toString()}`;
+  return `${API_HTTP}/sse/publico?${q.toString()}`;
 }

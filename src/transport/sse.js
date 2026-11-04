@@ -8,6 +8,8 @@ export const CABECERAS_SSE = Object.freeze({
   'Cache-Control': 'no-cache',
   Connection: 'keep-alive',
   'X-Accel-Buffering': 'no',
+  // El frontend público puede servirse desde otro dominio (Vercel): EventSource necesita CORS.
+  'Access-Control-Allow-Origin': '*',
 });
 
 /** Cuántos latidos seguidos sin `drain` se toleran antes de dar el socket por colgado. */

@@ -1,6 +1,7 @@
 // Cliente WS del auditor con reconexión (backoff exponencial + jitter)
 // y latido periódico. El servidor confirma cada asignación; aquí nunca
 // se decide disponibilidad.
+import { API_WS } from '../../config.js';
 export function crearClienteWS({ obtenerActaActual, onAbierto, onMensaje, onEstado }) {
   let socket = null;
   let manual = false;
@@ -86,6 +87,5 @@ export function crearClienteWS({ obtenerActaActual, onAbierto, onMensaje, onEsta
 
 // URL por defecto: mismo origen (funciona detrás de nginx que proxea /ws/).
 export function urlPorDefecto(auditor) {
-  const protocolo = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocolo}//${location.host}/ws/auditor?auditor=${encodeURIComponent(auditor)}`;
+  return `${API_WS}/ws/auditor?auditor=${encodeURIComponent(auditor)}`;
 }
