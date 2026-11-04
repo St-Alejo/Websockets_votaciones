@@ -1,0 +1,10 @@
+{
+  "name": "consola-auditores",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Consola colaborativa de auditores (Persona 3). Vanilla ESM sin build: servir estático y abrir en el navegador.",
+  "scripts": {
+    "dev": "npx --yes serve . -l 5174"
+  }
+}

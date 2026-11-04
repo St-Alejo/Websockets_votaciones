@@ -55,7 +55,9 @@ export async function construirApp(opciones = {}) {
   });
 
   app.addHook('onClose', async () => {
-    if (clientesPropios) await Promise.allSettled([redis.quit(), redisSub.quit()]);
+    // QUIT sin conexión se queda esperando en la cola offline (cliente sub): ahí se corta.
+    const cerrar = (c) => (c.status === 'ready' ? c.quit() : c.disconnect());
+    if (clientesPropios) await Promise.allSettled([cerrar(redis), cerrar(redisSub)]);
   });
 
   return app;

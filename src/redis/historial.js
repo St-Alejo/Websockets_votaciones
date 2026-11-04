@@ -4,6 +4,7 @@
 import { streamActas } from '../contratos/keys.js';
 import { eventoDesdeEntrada } from '../contratos/stream.js';
 import { traducirErrorRedis } from '../dominio/errores.js';
+import { obtenerRedis } from './cliente.js';
 
 const ID = /^\d+-\d+$/;
 
@@ -35,8 +36,28 @@ function campo(info, nombre) {
  * - recortado: true → parte de lo ocurrido después del cursor ya se recortó (MAXLEN): el
  *   cliente debe pedir un snapshot en vez de aplicar deltas.
  * - hay_mas: true → quedan eventos: volver a llamar con el stream_id devuelto.
+ *
+ * Firmas: leerDesde(redis, cursor, max) (Persona 1) o leerDesde(cursor, max) (Persona 2, usa el
+ * cliente registrado o el stub en memoria). La respuesta trae hay_mas y su alias hayMas.
  */
-export async function leerDesde(redis, cursor, max) {
+export async function leerDesde(...args) {
+  const conCliente = args[0] && typeof args[0] === 'object' && typeof args[0].xrange === 'function';
+  if (conCliente) return leerDesdeStream(...args);
+  const [cursor, max] = args;
+  const limite = Number(max) > 0 ? Number(max) : 500;
+  const redis = obtenerRedis();
+  if (redis?.status === 'ready') {
+    const r = await leerDesdeStream(redis, cursor ?? '0-0', limite);
+    return conAlias({ recortado: false, ...r });
+  }
+  return leerDesdeMemoria(cursor, limite);
+}
+
+function conAlias(r) {
+  return { ...r, hayMas: Boolean(r.hay_mas) };
+}
+
+async function leerDesdeStream(redis, cursor, max) {
   const limite = Math.max(1, Math.min(Number(max) || 500, 5000));
   if (!ID.test(String(cursor ?? ''))) {
     return { eventos: [], stream_id: await ultimoId(redis), recortado: true };
@@ -72,4 +93,48 @@ export async function leerDesde(redis, cursor, max) {
   } catch (err) {
     throw traducirErrorRedis(err);
   }
+}
+
+// ─────────────── compatibilidad con Persona 2 (src/transport/reconexion.js) ───────────────
+// Persona 2 llama leerDesde(cursor, max) sin cliente y lee `hayMas`. Si el primer argumento no
+// es un cliente Redis, se usa el cliente registrado y, si no está listo, un stub en memoria.
+const MAX_MEMORIA = 10_000;
+const memoria = [];
+
+/** Alias usado por Persona 2. */
+export const compararStreamId = (a, b) => compararIds(String(a ?? '0-0'), String(b ?? '0-0'));
+
+/** Stub en memoria (solo pruebas sin Redis). */
+export function registrarEnMemoria(evento) {
+  memoria.push({ ...evento });
+  if (memoria.length > MAX_MEMORIA) memoria.splice(0, memoria.length - MAX_MEMORIA);
+}
+
+export function vaciarMemoria() {
+  memoria.length = 0;
+}
+
+function leerDesdeMemoria(streamId, limite) {
+  const eventos = memoria.slice().sort((a, b) => compararStreamId(a.stream_id, b.stream_id));
+  if (eventos.length === 0) {
+    return {
+      eventos: [],
+      stream_id: streamId || '0-0',
+      recortado: Boolean(streamId),
+      hayMas: false,
+    };
+  }
+  if (streamId && compararStreamId(streamId, eventos[0].stream_id) < 0) {
+    return { eventos: [], stream_id: eventos.at(-1).stream_id, recortado: true, hayMas: false };
+  }
+  const posteriores = streamId
+    ? eventos.filter((e) => compararStreamId(e.stream_id, streamId) > 0)
+    : eventos;
+  const pagina = posteriores.slice(0, limite);
+  return {
+    eventos: pagina,
+    stream_id: pagina.length ? pagina.at(-1).stream_id : streamId || eventos.at(-1).stream_id,
+    recortado: false,
+    hayMas: posteriores.length > limite,
+  };
 }
