@@ -39,7 +39,7 @@ describe.skipIf(!(await hasRedis()))(
       await reader.cancel();
       expect(text).toMatch(/event: snapshot/);
       expect(text).toMatch(/^id: /m);
-      const data = text.split('data: ')[1];
+      const data = text.split('data: ')[1].split('\n')[0];
       expect(JSON.parse(data).levels.dept).toMatchObject({ level: 'dept' });
     });
 
