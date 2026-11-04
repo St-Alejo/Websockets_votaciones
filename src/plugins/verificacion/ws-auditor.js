@@ -75,7 +75,11 @@ export default async function wsAuditor(app) {
   // En producción es el mismo objeto: operación inocua.
   registrarClientes({ redis: app.redis, redisSub: app.redisSub });
   app.auditoresWs = new Set();
-  await suscribirBackplane(app);
+  // Sin await: con Redis caído el SUBSCRIBE queda en la cola offline y bloquearía el
+  // arranque de la réplica (RF-10). Se completa solo cuando Redis vuelve.
+  suscribirBackplane(app).catch((err) =>
+    app.log.warn({ msg: err.message }, 'no se pudo suscribir al backplane de auditores'),
+  );
 
   // Los listeners se registran antes de cualquier await para no perder mensajes tempranos.
   app.get('/ws/auditor', { websocket: true }, (socket, req) => {

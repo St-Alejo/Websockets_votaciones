@@ -2,7 +2,10 @@
 // Usan el WebSocket global de Node 22 (sin dependencias nuevas) contra 1-2
 // instancias reales escuchando en puertos efímeros, con un backplane falso
 // compartido (mismo store + Pub/Sub) para probar difusión entre instancias.
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Redis } from 'ioredis';
+import { esperarListo } from '../../redis/cliente.js';
+import { hayRedis, urlConDb } from '../../redis/pruebas.helper.js';
 import { construirApp } from '../../server.js';
 import { ACTA_EJEMPLO, CONFIG_TEST } from '../../../test/helpers.js';
 import { encolarActa, tamanioCola } from '../../verificacion/cola.js';
@@ -159,28 +162,6 @@ function crearClusterFalso() {
   };
 }
 
-/** Redis mínimo para el WS de jurados (el dominio P1 es stub en memoria). */
-function redisMinimo() {
-  return {
-    status: 'ready',
-    on() {
-      return this;
-    },
-    async ping() {
-      return 'PONG';
-    },
-    async quit() {
-      return 'OK';
-    },
-    async publish() {
-      return 1;
-    },
-    async subscribe() {
-      return 1;
-    },
-  };
-}
-
 /** Conecta un cliente WS y devuelve el socket con buzón por tipo. */
 async function conectar(url) {
   const ws = new WebSocket(url);
@@ -237,9 +218,22 @@ const actaDe = (idem, jurado = ACTA_EJEMPLO.jurado) => ({ ...ACTA_EJEMPLO, idem,
 
 // ── WS jurados (RT-5: bidireccional; ACK solo tras registrarActa) ──
 
-describe('WS /ws/jurado', () => {
+// El ACK sale de registrarActa real (Persona 1): necesita un Redis real (base 15).
+describe.skipIf(!(await hayRedis()))('WS /ws/jurado', () => {
   let app;
   const clientes = [];
+
+  beforeAll(async () => {
+    const admin = new Redis(urlConDb(15));
+    await admin.flushdb();
+    await admin.quit();
+    app = await construirApp({
+      config: { ...CONFIG_TEST, redisUrl: urlConDb(15) },
+      logger: false,
+    });
+    await esperarListo(app.redis);
+    await app.listen({ port: 0, host: '127.0.0.1' });
+  });
 
   afterAll(async () => {
     for (const c of clientes) c.cerrar();
@@ -247,9 +241,6 @@ describe('WS /ws/jurado', () => {
   });
 
   it('hola + acta válida → ACK con respuesta registrada', async () => {
-    const r = redisMinimo();
-    app = await construirApp({ config: { ...CONFIG_TEST }, redis: r, redisSub: r, logger: false });
-    await app.listen({ port: 0, host: '127.0.0.1' });
     const c = await conectar(`${urlBase(app)}/ws/jurado?jurado=${ACTA_EJEMPLO.jurado}`);
     clientes.push(c);
     expect(await c.proximo('hola')).toMatchObject({ instancia: 'test-1' });
@@ -263,7 +254,8 @@ describe('WS /ws/jurado', () => {
     const c = await conectar(`${urlBase(app)}/ws/jurado?jurado=${ACTA_EJEMPLO.jurado}`);
     clientes.push(c);
     await c.proximo('hola');
-    const acta = actaDe('ws-jurado-dupe');
+    // Otra mesa: el mismo contenido que el caso anterior ya sería "duplicada" (hash de P1).
+    const acta = { ...actaDe('ws-jurado-dupe'), acta: 'E14-176-0043-03', mesa: 4202 };
     c.ws.send(JSON.stringify({ tipo: 'acta', acta }));
     const r1 = await c.proximo('respuesta');
     c.ws.send(JSON.stringify({ tipo: 'acta', acta }));

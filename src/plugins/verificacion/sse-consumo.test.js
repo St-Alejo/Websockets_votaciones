@@ -2,9 +2,13 @@
 // NO modifica código de Persona 2: verifica por HTTP que GET /sse/publico
 // emite `event: snapshot` con `id:` (reanunable) y rechaza tópicos inválidos.
 import { afterAll, describe, expect, it } from 'vitest';
-import { appDePrueba } from '../../../test/helpers.js';
+import { construirApp } from '../../server.js';
+import { esperarListo } from '../../redis/cliente.js';
+import { hayRedis, urlConDb } from '../../redis/pruebas.helper.js';
+import { CONFIG_TEST } from '../../../test/helpers.js';
 
-describe('RT-5 el público consume SSE con snapshot reanudable', () => {
+// El snapshot sale de Redis (Persona 1): necesita un Redis real (base 15).
+describe.skipIf(!(await hayRedis()))('RT-5 el público consume SSE con snapshot reanudable', () => {
   let app;
   let base;
   afterAll(async () => {
@@ -12,7 +16,11 @@ describe('RT-5 el público consume SSE con snapshot reanudable', () => {
   });
 
   it('emite event: snapshot con id y header X-Instance-Id', async () => {
-    app = await appDePrueba();
+    app = await construirApp({
+      config: { ...CONFIG_TEST, redisUrl: urlConDb(15) },
+      logger: false,
+    });
+    await esperarListo(app.redis);
     await app.listen({ port: 0, host: '127.0.0.1' });
     base = `http://127.0.0.1:${app.server.address().port}`;
 
