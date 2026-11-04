@@ -50,13 +50,15 @@ describe('servidor', () => {
     }
   });
 
-  it('POST /actas con el ejemplo del PDF → registrada y luego duplicada', async () => {
-    const acta = { ...ACTA_EJEMPLO, idem: 'humo-servidor-0001' };
-    const r1 = await app.inject({ method: 'POST', url: '/actas', payload: acta });
-    expect(r1.statusCode).toBe(201);
-    expect(r1.json().estado).toBe('registrada');
-    const r2 = await app.inject({ method: 'POST', url: '/actas', payload: acta });
-    expect(r2.json()).toMatchObject({ estado: 'duplicada', recibo: r1.json().recibo });
+  // El flujo registrada → duplicada necesita Redis real: ver src/plugins/core/actas.test.js.
+  it('POST /actas con un acta inválida → 400 rechazada (se valida antes de tocar Redis)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/actas',
+      payload: { ...ACTA_EJEMPLO, votos: {} },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toMatchObject({ estado: 'rechazada', recibo: null });
   });
 
   it('GET /acumulado y /ranking devuelven datos coherentes', async () => {

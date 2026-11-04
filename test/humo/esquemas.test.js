@@ -38,13 +38,8 @@ describe('ActaEntrante', () => {
 });
 
 describe('stubs respetan los esquemas', () => {
-  it('registrarActa devuelve RespuestaRegistro válidas', async () => {
-    const ok = await registrarActa({ ...ACTA_EJEMPLO, idem: 'humo-esquemas-0001' });
-    expect(RespuestaRegistro.parse(ok).estado).toBe('registrada');
-
-    const dudosa = await registrarActa({ ...ACTA_EJEMPLO, sufragantes: 1, idem: 'humo-esq-0002' });
-    expect(RespuestaRegistro.parse(dudosa).estado).toBe('dudosa');
-
+  // registrada/dudosa/duplicada necesitan Redis real: ver src/redis/actas.test.js (Persona 1).
+  it('registrarActa rechaza JSON inválido con una RespuestaRegistro válida (sin Redis)', async () => {
     const mala = await registrarActa({ acta: 'x' });
     expect(RespuestaRegistro.parse(mala).estado).toBe('rechazada');
   });
